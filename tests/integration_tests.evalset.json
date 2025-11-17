@@ -1,0 +1,50 @@
+{
+  "eval_set_id": "content_generation_tests",
+  "description": "Integration tests for the scientific content generation agent",
+  "eval_cases": [
+    {
+      "eval_id": "test_basic_topic",
+      "description": "Test basic content generation with a simple AI topic",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate scientific content on the following topic: Machine Learning Interpretability\n\nPreferences:\n- Target platforms: blog, linkedin, twitter\n- Tone: professional\n- Target audience: researchers and professionals\n\nGenerate content for all three platforms: blog article, LinkedIn post, and Twitter thread."
+              }
+            ]
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "=== FINAL BLOG ARTICLE ===\n[Content should include title, introduction, main sections, conclusion, and references]\n\n=== FINAL LINKEDIN POST ===\n[Content should include hook, key insights, and hashtags]\n\n=== FINAL TWITTER THREAD ===\n[Content should include numbered tweets under 280 chars]\n\n=== CITATIONS ===\n[Formatted citations from academic sources]"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "test_specific_audience",
+      "description": "Test content generation with specific audience targeting",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate scientific content on the following topic: Quantum Computing Applications\n\nPreferences:\n- Target platforms: blog, linkedin\n- Tone: accessible\n- Target audience: industry professionals without deep technical background\n\nFocus on practical applications rather than theoretical foundations."
+              }
+            ]
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Content should be accessible to non-experts, focus on real-world applications, and include relevant citations from industry sources."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
