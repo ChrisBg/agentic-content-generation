@@ -1,7 +1,10 @@
 """User professional profile configuration for personalized content generation."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any
+
+import yaml
 
 
 @dataclass
@@ -15,12 +18,12 @@ class UserProfile:
     # Professional Identity
     name: str = "Your Name"
     target_role: str = "AI Consultant"  # AI Consultant, ML Engineer, AI Architect, etc.
-    expertise_areas: List[str] = field(
+    expertise_areas: list[str] = field(
         default_factory=lambda: ["Machine Learning", "Artificial Intelligence", "Deep Learning"]
     )
 
     # Professional Goals
-    content_goals: List[str] = field(
+    content_goals: list[str] = field(
         default_factory=lambda: [
             "opportunities",  # Attract freelance/job opportunities
             "credibility",  # Build professional credibility
@@ -30,8 +33,8 @@ class UserProfile:
 
     # Geographic & Market
     region: str = "Europe"  # Europe, US, Asia, Global, etc.
-    languages: List[str] = field(default_factory=lambda: ["English"])
-    target_industries: List[str] = field(
+    languages: list[str] = field(default_factory=lambda: ["English"])
+    target_industries: list[str] = field(
         default_factory=lambda: ["Technology", "Finance", "Healthcare", "Consulting"]
     )
 
@@ -42,7 +45,7 @@ class UserProfile:
     kaggle_username: str = ""  # Your Kaggle username
 
     # Key Projects (to mention in content)
-    notable_projects: List[Dict[str, str]] = field(
+    notable_projects: list[dict[str, str]] = field(
         default_factory=lambda: [
             {
                 "name": "Project Name",
@@ -54,7 +57,7 @@ class UserProfile:
     )
 
     # Technical Skills & Tools
-    primary_skills: List[str] = field(
+    primary_skills: list[str] = field(
         default_factory=lambda: ["Python", "PyTorch", "TensorFlow", "Scikit-learn", "MLflow"]
     )
 
@@ -69,7 +72,7 @@ class UserProfile:
     unique_value_proposition: str = (
         "I help companies turn AI research into production-ready solutions"
     )
-    key_differentiators: List[str] = field(
+    key_differentiators: list[str] = field(
         default_factory=lambda: [
             "Bridging research and production",
             "End-to-end AI implementation",
@@ -77,7 +80,7 @@ class UserProfile:
         ]
     )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert profile to dictionary for agent context."""
         return {
             "name": self.name,
@@ -135,19 +138,67 @@ class UserProfile:
 # Default profile (users should customize this)
 DEFAULT_PROFILE = UserProfile()
 
+# Path to user profile configuration
+PROFILE_DIR = Path.home() / ".agentic-content-generation"
+PROFILE_PATH = PROFILE_DIR / "profile.yaml"
+
+
+def load_profile_from_yaml(path: Path) -> UserProfile:
+    """Load user profile from YAML file.
+
+    Args:
+        path: Path to the YAML file
+
+    Returns:
+        UserProfile instance
+    """
+    if not path.exists():
+        return DEFAULT_PROFILE
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            if not data:
+                return DEFAULT_PROFILE
+            # Filter out any keys that don't exist in UserProfile
+            valid_keys = UserProfile.__annotations__.keys()
+            filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+            return UserProfile(**filtered_data)
+    except Exception as e:
+        print(f"Warning: Failed to load profile from {path}: {e}")
+        return DEFAULT_PROFILE
+
+
+def save_profile_to_yaml(profile: UserProfile, path: Path) -> None:
+    """Save user profile to YAML file.
+
+    Args:
+        profile: UserProfile instance
+        path: Path to save the YAML file
+    """
+    # Create directory if it doesn't exist
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(profile.to_dict(), f, default_flow_style=False, sort_keys=False)
+
 
 def load_user_profile() -> UserProfile:
     """Load user profile from configuration.
 
-    In future, this could load from a config file or database.
-    For now, users should edit this file directly.
+    Checks ~/.agentic-content-generation/profile.yaml first.
+    Falls back to default profile if not found.
     """
-    # TODO: Load from ~/.agentic-content/profile.yaml or similar
+    if PROFILE_PATH.exists():
+        print(f"👤 Loading profile from {PROFILE_PATH}")
+        return load_profile_from_yaml(PROFILE_PATH)
+
+    print("👤 Using default profile (no custom profile found)")
     return DEFAULT_PROFILE
 
 
 def create_custom_profile(
-    name: str, target_role: str, expertise_areas: List[str], **kwargs
+    name: str, target_role: str, expertise_areas: list[str], **kwargs
 ) -> UserProfile:
     """Create a custom user profile.
 

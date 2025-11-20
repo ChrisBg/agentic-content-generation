@@ -31,3 +31,7 @@ ROOT_AGENT_NAME = "ScientificContentAgent"
 SUPPORTED_PLATFORMS = ["blog", "linkedin", "twitter"]
 MAX_PAPERS_PER_SEARCH = 5
 CITATION_STYLE = "apa"
+
+# Logging Configuration
+LOG_LEVEL = "INFO"
+LOG_FILE = "agent.log"

@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -11,13 +12,14 @@ load_dotenv()
 if not os.getenv("GOOGLE_API_KEY"):
     raise ValueError("GOOGLE_API_KEY not found in environment variables")
 
-from src.agents import (
+from google.adk.agents import SequentialAgent  # noqa: E402
+from google.adk.runners import InMemoryRunner  # noqa: E402
+
+from src.agents import (  # noqa: E402
+    create_content_generator_agent,
     create_research_agent,
     create_strategy_agent,
-    create_content_generator_agent,
 )
-from google.adk.agents import SequentialAgent
-from google.adk.runners import InMemoryRunner
 
 
 async def test_pipeline():
@@ -32,7 +34,7 @@ async def test_pipeline():
     pipeline = SequentialAgent(
         name="TestPipeline",
         description="Test pipeline with 3 agents",
-        sub_agents=[research_agent, strategy_agent, content_agent]
+        sub_agents=[research_agent, strategy_agent, content_agent],
     )
 
     # Create runner

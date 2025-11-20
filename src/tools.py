@@ -1,11 +1,11 @@
 """Custom tools for the content generation agent system."""
 
-from typing import Any, Dict, List
+from typing import Any
 
 import requests
 
 
-def search_papers(topic: str, max_results: int = 5) -> Dict[str, Any]:
+def search_papers(topic: str, max_results: int = 5) -> dict[str, Any]:
     """Search for academic papers and research articles on a given topic.
 
     This tool searches for recent academic papers, research articles, and
@@ -91,7 +91,7 @@ def search_papers(topic: str, max_results: int = 5) -> Dict[str, Any]:
         return {"status": "error", "error_message": f"Unexpected error: {str(e)}"}
 
 
-def format_for_platform(content: str, platform: str, topic: str = "") -> Dict[str, Any]:
+def format_for_platform(content: str, platform: str, topic: str = "") -> dict[str, Any]:
     """Format content appropriately for different social media platforms.
 
     Adjusts content length, structure, and style based on platform requirements:
@@ -187,7 +187,7 @@ What are your thoughts? Share in the comments below! 👇
         return {"status": "error", "error_message": f"Formatting error: {str(e)}"}
 
 
-def generate_citations(sources: List[Dict[str, str]], style: str = "apa") -> Dict[str, Any]:
+def generate_citations(sources: list[dict[str, str]], style: str = "apa") -> dict[str, Any]:
     """Generate properly formatted citations from source information.
 
     Creates academic-style citations from paper/article metadata to ensure
@@ -246,7 +246,7 @@ def generate_citations(sources: List[Dict[str, str]], style: str = "apa") -> Dic
         return {"status": "error", "error_message": f"Citation generation error: {str(e)}"}
 
 
-def extract_key_findings(research_text: str, max_findings: int = 5) -> Dict[str, Any]:
+def extract_key_findings(research_text: str, max_findings: int = 5) -> dict[str, Any]:
     """Extract key findings and insights from research text.
 
     Parses research summaries to identify the most important findings,
@@ -321,7 +321,7 @@ def extract_key_findings(research_text: str, max_findings: int = 5) -> Dict[str,
 
 def search_industry_trends(
     field: str, region: str = "global", max_results: int = 5
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Search for industry trends, job market demands, and hiring patterns in AI/ML.
 
     Identifies what companies are looking for, hot skills in demand, and
@@ -392,7 +392,7 @@ def search_industry_trends(
         return {"status": "error", "error_message": f"Industry trends search error: {str(e)}"}
 
 
-def generate_seo_keywords(topic: str, role: str = "AI Consultant") -> Dict[str, Any]:
+def generate_seo_keywords(topic: str, role: str = "AI Consultant") -> dict[str, Any]:
     """Generate LinkedIn SEO keywords that recruiters search for.
 
     Creates role-specific keywords and technology terms that improve
@@ -477,7 +477,7 @@ def generate_seo_keywords(topic: str, role: str = "AI Consultant") -> Dict[str, 
         return {"status": "error", "error_message": f"SEO keyword generation error: {str(e)}"}
 
 
-def create_engagement_hooks(topic: str, goal: str = "opportunities") -> Dict[str, Any]:
+def create_engagement_hooks(topic: str, goal: str = "opportunities") -> dict[str, Any]:
     """Create engagement hooks that invite professional connections and opportunities.
 
     Generates calls-to-action, questions, and portfolio mentions that
@@ -583,7 +583,7 @@ def create_engagement_hooks(topic: str, goal: str = "opportunities") -> Dict[str
 
 def analyze_content_for_opportunities(
     content: str, target_role: str = "AI Consultant"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze content for recruiter appeal and opportunity generation potential.
 
     Scores content based on factors that attract professional opportunities:
