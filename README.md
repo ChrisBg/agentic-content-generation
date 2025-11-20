@@ -9,6 +9,9 @@ An AI-powered agent system that generates research-backed content (blog articles
 - 🎯 **Professional Credibility**: Creates content that builds scientific authority
 - 📚 **Proper Citations**: Includes formatted references and source attribution
 - 🤖 **Multi-Agent Pipeline**: Uses specialized agents for research, strategy, generation, and review
+- 👤 **User Profiles**: Personalized content generation based on your expertise and goals
+- 💾 **Session Management**: Resume conversations and track generation history
+- ✅ **Profile Validation**: Ensure your profile is complete with helpful warnings
 
 ## Architecture
 
@@ -55,28 +58,86 @@ make run
 
 ## Usage
 
+### Quick Start
+
+```bash
+# 1. Initialize your profile
+python main.py --init-profile
+
+# 2. Edit your profile with your information
+# Edit: ~/.agentic-content-generation/profile.yaml
+
+# 3. Validate your profile
+python main.py --validate-profile
+
+# 4. Generate content
+python main.py --topic "Your Research Topic"
+```
+
+### Profile Setup
+
+Create and customize your professional profile for personalized content:
+
+```bash
+# Create default profile
+python main.py --init-profile
+
+# This creates: ~/.agentic-content-generation/profile.yaml
+# Edit this file with your:
+# - Name and target role
+# - Expertise areas and skills
+# - Portfolio links (GitHub, LinkedIn, etc.)
+# - Notable projects
+# - Content goals and tone preferences
+
+# Validate your profile
+python main.py --validate-profile
+```
+
+See [docs/PROFILES.md](docs/PROFILES.md) for detailed profile configuration guide.
+
+### Session Management
+
+Track and resume your content generation sessions:
+
+```bash
+# List all sessions
+python main.py --list-sessions
+
+# Resume a specific session
+python main.py --session-id <SESSION_ID>
+
+# Delete a session
+python main.py --delete-session <SESSION_ID>
+```
+
+See [docs/SESSIONS.md](docs/SESSIONS.md) for session management guide.
+
 ### Basic Usage
 
 ```bash
+# Generate content with default topic
 python main.py
+
+# Generate content with custom topic
+python main.py --topic "Transformer Models in NLP"
+
+# Resume a previous conversation
+python main.py --topic "AI Agents" --session-id <SESSION_ID>
 ```
 
-This runs the agent with a default example topic.
+### CLI Commands Reference
 
-### Custom Topic
+```bash
+python main.py --help
 
-Edit [main.py](main.py) and modify the `topic` variable:
-
-```python
-topic = "Your Research Topic Here"
-
-preferences = {
-    "platforms": ["blog", "linkedin", "twitter"],
-    "tone": "professional",
-    "target_audience": "researchers and practitioners",
-}
-
-result = await run_content_generation(topic, preferences)
+Options:
+  --init-profile        Initialize a default profile
+  --validate-profile    Validate your profile configuration
+  --list-sessions       List all saved sessions
+  --delete-session ID   Delete a specific session
+  --topic TOPIC         Topic to generate content about
+  --session-id ID       Resume a conversation
 ```
 
 ### Programmatic Usage
@@ -87,7 +148,11 @@ import asyncio
 
 async def generate():
     topic = "Transformer Models in NLP"
-    result = await run_content_generation(topic)
+    preferences = {
+        "platforms": ["blog", "linkedin", "twitter"],
+        "target_audience": "researchers and practitioners",
+    }
+    result = await run_content_generation(topic, preferences)
     print(result)
 
 asyncio.run(generate())
@@ -122,22 +187,36 @@ The agent generates:
 agentic-content-generation/
 ├── src/
 │   ├── __init__.py
-│   ├── agents.py          # Agent definitions (Research, Strategy, Content, Review)
-│   ├── config.py          # Configuration and constants
-│   └── tools.py           # Custom tools (search_papers, format_for_platform, etc.)
+│   ├── agents.py             # Agent definitions (Research, Strategy, Content, Review)
+│   ├── config.py             # Configuration and constants
+│   ├── tools.py              # Custom tools (search_papers, format_for_platform, etc.)
+│   ├── profile.py            # User profile system with validation
+│   └── session_manager.py    # Session management utilities
 ├── tests/
-│   ├── integration_tests.evalset.json  # Test cases
-│   └── test_config.json                # Evaluation config
-├── output/                # Generated content files
-├── notebooks/             # Course notebooks (reference)
-├── main.py               # Main entry point
-├── pyproject.toml        # Project config (uv, ruff)
-├── Makefile              # Development commands
-├── requirements.txt      # Legacy pip dependencies
-├── .env.example         # Environment variable template
-├── SETUP.md             # Quick setup guide
-└── README.md            # This file
+│   ├── conftest.py           # Pytest fixtures and configuration
+│   ├── test_profile.py       # Profile validation tests
+│   ├── test_session_manager.py  # Session management tests
+│   ├── integration_tests.evalset.json  # ADK eval test cases
+│   └── test_config.json      # Evaluation config
+├── docs/
+│   ├── PROFILES.md           # Profile configuration guide
+│   └── SESSIONS.md           # Session management guide
+├── output/                   # Generated content files
+├── notebooks/                # Course notebooks (reference)
+├── main.py                   # Main entry point with CLI
+├── profile.example.yaml      # Example profile configuration
+├── pyproject.toml            # Project config (uv, ruff, pytest)
+├── Makefile                  # Development commands
+├── .env.example              # Environment variable template
+├── SETUP.md                  # Quick setup guide
+└── README.md                 # This file
 ```
+
+### User Configuration
+
+The agent stores user data in `~/.agentic-content-generation/`:
+- `profile.yaml` - Your professional profile
+- `sessions.db` - Conversation history (SQLite database)
 
 ## Development
 
@@ -162,13 +241,28 @@ make check
 ### Running Tests
 
 ```bash
-# Run pytest tests
+# Run all tests with pytest
 make test
 
-# Run ADK evaluation
+# Run tests with coverage report
+pytest --cov=src --cov-report=html
+
+# Run specific test file
+pytest tests/test_profile.py
+
+# Run tests by marker
+pytest -m unit  # Unit tests only
+pytest -m integration  # Integration tests only
+
+# Run ADK evaluation tests
 adk eval src.agents tests/integration_tests.evalset.json \
   --config_file_path=tests/test_config.json
 ```
+
+The test suite includes:
+- **Unit tests**: Profile validation, session management, tools
+- **Integration tests**: Full agent pipeline with mocked APIs
+- **ADK eval tests**: Conversation-based testing with quality metrics
 
 ### Web UI for Interactive Testing
 

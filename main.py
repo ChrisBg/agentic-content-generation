@@ -21,6 +21,8 @@ from src.profile import (
     load_user_profile,
     save_profile_to_yaml,
 )
+from src.profile_editor import edit_profile_interactive, validate_after_edit
+from src.session_manager import delete_session, format_session_list, list_sessions
 
 
 async def run_content_generation(topic: str, preferences: dict = None, session_id: str = None):
@@ -134,7 +136,11 @@ Generate content for all three platforms: blog article, LinkedIn post, and Twitt
             user_id=profile.name, session_id=session_id, new_message=query
         ):
             # Check for final content in state delta
-            if event.actions and event.actions.state_delta and "final_content" in event.actions.state_delta:
+            if (
+                event.actions
+                and event.actions.state_delta
+                and "final_content" in event.actions.state_delta
+            ):
                 final_content = event.actions.state_delta["final_content"]
 
             # Also check if the model returned a text response (fallback)
@@ -170,6 +176,27 @@ async def main():
         help="Initialize a default user profile in ~/.agentic-content-generation/profile.yaml",
     )
     parser.add_argument(
+        "--validate-profile",
+        action="store_true",
+        help="Validate the current profile and show warnings/errors",
+    )
+    parser.add_argument(
+        "--edit-profile",
+        action="store_true",
+        help="Open profile in your default editor",
+    )
+    parser.add_argument(
+        "--list-sessions",
+        action="store_true",
+        help="List all saved sessions",
+    )
+    parser.add_argument(
+        "--delete-session",
+        type=str,
+        metavar="SESSION_ID",
+        help="Delete a specific session by ID",
+    )
+    parser.add_argument(
         "--topic",
         type=str,
         default="Large Language Models and AI Agents",
@@ -196,6 +223,53 @@ async def main():
             print(
                 "👉 Please edit this file with your personal information before running the agent."
             )
+        return
+
+    if args.validate_profile:
+        print("\n🔍 Validating profile...\n")
+        try:
+            profile = load_user_profile(validate=True)
+            print("✅ Profile validation complete!")
+            if profile.name != "Your Name":
+                print(f"👤 Profile: {profile.name} ({profile.target_role})")
+        except ValueError as e:
+            print(f"\n❌ Validation failed: {e}")
+            return
+        return
+
+    if args.edit_profile:
+        print("\n📝 Opening profile editor...\n")
+        if not PROFILE_PATH.exists():
+            print("⚠️  No profile found. Creating one first...")
+            save_profile_to_yaml(DEFAULT_PROFILE, PROFILE_PATH)
+            print(f"✅ Created default profile at {PROFILE_PATH}\n")
+
+        changed = edit_profile_interactive()
+        if changed:
+            # Validate after editing
+            validate_after_edit()
+        return
+
+    if args.list_sessions:
+        print("\n📋 Listing all sessions...\n")
+        sessions = list_sessions()
+        if sessions:
+            print(format_session_list(sessions))
+            print(f"Total: {len(sessions)} session(s)")
+            print("\n💡 To resume a session: python main.py --session-id <SESSION_ID>")
+            print("💡 To delete a session: python main.py --delete-session <SESSION_ID>")
+        else:
+            print("No sessions found. Start a new conversation to create one!")
+        return
+
+    if args.delete_session:
+        session_id_to_delete = args.delete_session
+        print(f"\n🗑️  Deleting session: {session_id_to_delete}...")
+        result = delete_session(session_id_to_delete)
+        if result["status"] == "success":
+            print(f"✅ {result['message']}")
+        else:
+            print(f"❌ {result['message']}")
         return
 
     # Example usage

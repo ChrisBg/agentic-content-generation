@@ -77,39 +77,72 @@ python -c "from src.tools import search_papers; import json; print(json.dumps(se
 
 If you see paper results, you're ready!
 
-## Step 7: Run Your First Content Generation
+## Step 7: Set Up Your Profile
 
 ```bash
-# Using make
-make run
+# Create your profile configuration
+python main.py --init-profile
 
-# Or directly
+# This creates: ~/.agentic-content-generation/profile.yaml
+# Edit this file with your information:
+# - Your name and target professional role
+# - Expertise areas (e.g., "Machine Learning", "NLP")
+# - Portfolio links (GitHub, LinkedIn, Kaggle)
+# - Notable projects you want to mention
+# - Content goals (opportunities, credibility, visibility)
+```
+
+Example profile customization:
+```yaml
+name: Your Name
+target_role: AI Consultant
+expertise_areas:
+  - Machine Learning
+  - Natural Language Processing
+github_username: your-github
+linkedin_url: https://linkedin.com/in/yourprofile
+```
+
+See [profile.example.yaml](profile.example.yaml) for a complete example.
+
+## Step 8: Validate Your Profile
+
+```bash
+# Check your profile for errors and warnings
+python main.py --validate-profile
+```
+
+Fix any errors or warnings shown before proceeding.
+
+## Step 9: Run Your First Content Generation
+
+```bash
+# Generate content with default topic
 python main.py
-```
 
-This will generate content on the default topic: "Large Language Models and AI Agents"
+# Or with a custom topic
+python main.py --topic "Transformer Models in NLP"
 
-## Step 8: Customize for Your Topic
-
-Edit `main.py` and change these lines:
-
-```python
-# Around line 70
-topic = "Your Research Topic Here"  # Change this
-
-preferences = {
-    "platforms": ["blog", "linkedin", "twitter"],
-    "tone": "professional",  # or "accessible", "academic", etc.
-    "target_audience": "Your target audience",  # customize this
-}
-```
-
-Then run again:
-```bash
+# Using make (default topic)
 make run
 ```
+
+This generates personalized content based on your profile!
 
 ## Next Steps
+
+### Manage Your Sessions
+
+```bash
+# List all previous conversations
+python main.py --list-sessions
+
+# Resume a conversation
+python main.py --session-id <SESSION_ID>
+
+# Delete old sessions
+python main.py --delete-session <SESSION_ID>
+```
 
 ### Use the Interactive Web UI
 
@@ -121,11 +154,22 @@ Then open the URL shown in the terminal to interact with your agent in a chat in
 
 ### Generate Content for Different Topics
 
-Edit the topic in `main.py` and run multiple times for different subjects.
+```bash
+# Just change the topic in the command
+python main.py --topic "AI Ethics and Bias"
+python main.py --topic "Quantum Machine Learning"
+python main.py --topic "Edge AI Deployment"
+```
 
 ### Check Your Output
 
 Generated content is saved in the `output/` directory with filenames based on your topic.
+
+### Advanced Features
+
+- **Profile Validation**: `python main.py --validate-profile`
+- **Session Management**: `python main.py --list-sessions`
+- **Custom Preferences**: Edit your `profile.yaml` to change tone, goals, and expertise
 
 ## Available Make Commands
 
