@@ -2,23 +2,165 @@
   "eval_set_id": "content_generation_tests",
   "eval_cases": [
     {
-      "eval_id": "test_basic_topic",
+      "eval_id": "test_ml_interpretability",
       "conversation": [
         {
           "user_content": {
             "parts": [
               {
-                "text": "Generate scientific content on the following topic: Machine Learning Interpretability"
+                "text": "Generate scientific content on the following topic: Machine Learning Interpretability\n\nPreferences:\n- Target platforms: blog, linkedin, twitter\n- Tone: professional\n- Target audience: AI researchers and industry professionals"
               }
             ]
           },
-          "final_response": {
+          "expected_keywords": [
+            "interpretability",
+            "explainability",
+            "SHAP",
+            "LIME",
+            "transparency"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "test_computer_vision",
+      "conversation": [
+        {
+          "user_content": {
             "parts": [
               {
-                "text": "Content about ML Interpretability"
+                "text": "Generate scientific content on the following topic: Computer Vision for Autonomous Vehicles\n\nPreferences:\n- Target platforms: blog, linkedin, twitter\n- Tone: professional\n- Target audience: automotive engineers and AI researchers"
               }
             ]
-          }
+          },
+          "expected_keywords": [
+            "computer vision",
+            "autonomous",
+            "object detection",
+            "perception",
+            "safety"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "test_nlp_topic",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate scientific content on the following topic: Transformer Models in Natural Language Processing\n\nPreferences:\n- Target platforms: blog, linkedin, twitter\n- Tone: technical\n- Target audience: NLP researchers and ML engineers"
+              }
+            ]
+          },
+          "expected_keywords": [
+            "transformer",
+            "attention",
+            "BERT",
+            "GPT",
+            "NLP"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "test_ai_agents",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate scientific content on the following topic: Multi-Agent Systems and Reinforcement Learning\n\nPreferences:\n- Target platforms: blog, linkedin, twitter\n- Tone: professional-conversational\n- Target audience: AI practitioners and researchers"
+              }
+            ]
+          },
+          "expected_keywords": [
+            "multi-agent",
+            "reinforcement learning",
+            "cooperation",
+            "coordination",
+            "reward"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "test_mlops_topic",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate scientific content on the following topic: MLOps Best Practices for Production ML Systems\n\nPreferences:\n- Target platforms: blog, linkedin, twitter\n- Tone: professional\n- Target audience: ML engineers and DevOps teams"
+              }
+            ]
+          },
+          "expected_keywords": [
+            "MLOps",
+            "deployment",
+            "monitoring",
+            "production",
+            "pipeline"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "test_robustness",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate scientific content on the following topic: Adversarial Robustness in Deep Learning\n\nPreferences:\n- Target platforms: blog, linkedin, twitter\n- Tone: technical\n- Target audience: security researchers and ML engineers"
+              }
+            ]
+          },
+          "expected_keywords": [
+            "adversarial",
+            "robustness",
+            "attack",
+            "defense",
+            "security"
+          ]
+        }
+      ]
+    },
+    {
+      "eval_id": "test_error_handling_invalid_platform",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate scientific content on the following topic: AI Ethics\n\nPreferences:\n- Target platforms: tiktok, instagram\n- Tone: casual\n- Target audience: general public"
+              }
+            ]
+          },
+          "should_handle_gracefully": true,
+          "note": "Agent should handle unsupported platforms gracefully"
+        }
+      ]
+    },
+    {
+      "eval_id": "test_linkedin_optimization",
+      "conversation": [
+        {
+          "user_content": {
+            "parts": [
+              {
+                "text": "Generate scientific content on the following topic: Large Language Models and Prompt Engineering\n\nPreferences:\n- Target platforms: blog, linkedin, twitter\n- Tone: professional\n- Target audience: AI consultants and hiring managers\n\nUser Profile Context:\n- Role: AI Consultant\n- Expertise: LLMs, NLP, Prompt Engineering\n- Key Skills: Python, PyTorch, LangChain\n- Content Goals: opportunities, credibility\n\nPlease optimize the LinkedIn post for recruiter visibility and professional opportunities."
+              }
+            ]
+          },
+          "expected_features": [
+            "SEO keywords (AI Consultant, ML Engineer, etc.)",
+            "Engagement hooks (questions, CTAs)",
+            "Portfolio mentions",
+            "Business value focus",
+            "Opportunity score > 60"
+          ]
         }
       ]
     }

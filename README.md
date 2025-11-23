@@ -15,12 +15,71 @@ An AI-powered agent system that generates research-backed content (blog articles
 
 ## Architecture
 
-The system uses a **Sequential Agent Pipeline** with four specialized agents:
+The system uses a **Sequential Agent Pipeline** with **five specialized agents** working together:
 
-1. **ResearchAgent**: Searches for academic papers (arXiv) and current trends (Google Search)
-2. **StrategyAgent**: Analyzes research and plans content approach for each platform
-3. **ContentGeneratorAgent**: Creates platform-specific drafts (blog, LinkedIn, Twitter)
-4. **ReviewAgent**: Verifies accuracy, adds citations, and polishes content
+```mermaid
+graph TD
+    A[User Input: Topic + Profile] --> B[ResearchAgent]
+    B -->|research_findings| C[StrategyAgent]
+    C -->|content_strategy| D[ContentGeneratorAgent]
+    D -->|generated_content| E[LinkedInOptimizationAgent]
+    E -->|optimized_linkedin| F[ReviewAgent]
+    F -->|final_content| G[Output: Blog + LinkedIn + Twitter]
+
+    B -.->|Tools| B1[search_papers<br/>extract_key_findings]
+    C -.->|Reasoning| C1[No tools<br/>Strategy planning]
+    D -.->|Tools| D1[format_for_platform]
+    E -.->|Tools| E1[generate_seo_keywords<br/>create_engagement_hooks<br/>search_industry_trends]
+    F -.->|Tools| F1[generate_citations<br/>analyze_content_for_opportunities]
+
+    style B fill:#e1f5ff
+    style C fill:#fff3e0
+    style D fill:#f3e5f5
+    style E fill:#e8f5e9
+    style F fill:#fce4ec
+```
+
+### Agent Pipeline
+
+1. **ResearchAgent** 🔬
+   - Searches academic papers via arXiv API
+   - Extracts key findings from research
+   - Identifies current trends
+   - **Output**: `research_findings`
+
+2. **StrategyAgent** 🎯
+   - Analyzes research with professional positioning focus
+   - Plans content approach per platform (LinkedIn as primary)
+   - Targets recruiters/hiring managers
+   - Identifies SEO keywords and portfolio opportunities
+   - **Output**: `content_strategy`
+
+3. **ContentGeneratorAgent** ✍️
+   - Creates blog article (1000-2000 words)
+   - Writes LinkedIn post (300-800 words)
+   - Composes Twitter thread (8-12 tweets)
+   - **Output**: `generated_content`
+
+4. **LinkedInOptimizationAgent** 🚀 *(New)*
+   - Optimizes LinkedIn post for recruiter visibility
+   - Adds SEO keywords and engagement hooks
+   - Integrates portfolio mentions
+   - Emphasizes business value and ROI language
+   - **Output**: `optimized_linkedin`
+
+5. **ReviewAgent** ✅
+   - Verifies scientific accuracy
+   - Adds proper citations (APA style)
+   - Analyzes content for opportunity appeal
+   - Provides improvement suggestions
+   - **Output**: `final_content` with opportunity scores
+
+### State Flow Pattern
+
+The agents communicate via the **output_key/placeholder pattern**:
+- Each agent sets `output_key="variable_name"`
+- Subsequent agents reference `{variable_name}` in instructions
+- ADK Runner manages the state dictionary automatically
 
 ## Installation
 

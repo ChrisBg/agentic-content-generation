@@ -1,5 +1,6 @@
 """Custom tools for the content generation agent system."""
 
+import xml.etree.ElementTree as ET
 from typing import Any
 
 import requests
@@ -36,38 +37,53 @@ def search_papers(topic: str, max_results: int = 5) -> dict[str, Any]:
         response = requests.get(base_url, params=params, timeout=10)
         response.raise_for_status()
 
-        # Parse XML response (simplified - in production use proper XML parser)
-        content = response.text
+        # Parse XML response using proper XML parser
+        # Design decision: We use ElementTree instead of string parsing for robustness
+        # and proper handling of XML namespaces, encoding, and malformed entries.
+        try:
+            root = ET.fromstring(response.content)
+        except ET.ParseError as e:
+            return {
+                "status": "error",
+                "error_message": f"Failed to parse arXiv XML response: {str(e)}",
+            }
 
-        # Extract papers (basic parsing - improve with xml.etree.ElementTree in production)
+        # arXiv API uses Atom namespace
+        namespace = {"atom": "http://www.w3.org/2005/Atom"}
+
+        # Extract papers from XML entries
         papers = []
-        entries = content.split("<entry>")[1:]  # Skip header
+        entries = root.findall("atom:entry", namespace)
 
         for entry in entries[:max_results]:
             try:
-                # Extract title
-                title_start = entry.find("<title>") + 7
-                title_end = entry.find("</title>")
-                title = entry[title_start:title_end].strip().replace("\n", " ")
+                # Extract title (remove extra whitespace and newlines)
+                title_elem = entry.find("atom:title", namespace)
+                title = (
+                    " ".join(title_elem.text.strip().split())
+                    if title_elem is not None
+                    else "Untitled"
+                )
 
-                # Extract summary
-                summary_start = entry.find("<summary>") + 9
-                summary_end = entry.find("</summary>")
-                summary = entry[summary_start:summary_end].strip().replace("\n", " ")[:300] + "..."
+                # Extract summary (limit to 300 chars for readability)
+                summary_elem = entry.find("atom:summary", namespace)
+                if summary_elem is not None:
+                    summary = " ".join(summary_elem.text.strip().split())
+                    summary = summary[:300] + ("..." if len(summary) > 300 else "")
+                else:
+                    summary = "No summary available"
 
-                # Extract link
-                link_start = entry.find("<id>") + 4
-                link_end = entry.find("</id>")
-                link = entry[link_start:link_end].strip()
+                # Extract paper ID/link
+                id_elem = entry.find("atom:id", namespace)
+                link = id_elem.text.strip() if id_elem is not None else ""
 
-                # Extract authors
+                # Extract authors (first 3 authors for brevity)
                 authors = []
-                author_sections = entry.split("<author>")[1:]
-                for author_section in author_sections[:3]:  # First 3 authors
-                    name_start = author_section.find("<name>") + 6
-                    name_end = author_section.find("</name>")
-                    if name_start > 5 and name_end > name_start:
-                        authors.append(author_section[name_start:name_end].strip())
+                author_elems = entry.findall("atom:author", namespace)
+                for author_elem in author_elems[:3]:
+                    name_elem = author_elem.find("atom:name", namespace)
+                    if name_elem is not None:
+                        authors.append(name_elem.text.strip())
 
                 papers.append(
                     {
@@ -78,7 +94,8 @@ def search_papers(topic: str, max_results: int = 5) -> dict[str, Any]:
                     }
                 )
             except Exception:
-                continue  # Skip malformed entries
+                # Skip malformed entries but continue processing
+                continue
 
         if not papers:
             return {"status": "error", "error_message": f"No papers found for topic: {topic}"}
@@ -613,6 +630,9 @@ def analyze_content_for_opportunities(
         content_lower = content.lower()
 
         # SEO keyword scoring
+        # Design decision: We check for both role-based keywords (consultant, engineer)
+        # and technical terms (PyTorch, TensorFlow) because recruiters search using both.
+        # The multiplier of 200 ensures that hitting ~50% of keywords gives a good score.
         seo_keywords = [
             "ai",
             "machine learning",
@@ -632,6 +652,9 @@ def analyze_content_for_opportunities(
         seo_score = min(100, (seo_hits / len(seo_keywords)) * 200)
 
         # Engagement hooks scoring
+        # Design decision: We look for calls-to-action, questions, and invitation words
+        # because these are proven to increase LinkedIn engagement and prompt connections.
+        # Target of 5 indicators gives 100 score - this is based on LinkedIn best practices.
         engagement_indicators = [
             "?",
             "let's",
@@ -651,6 +674,9 @@ def analyze_content_for_opportunities(
         engagement_score = min(100, (engagement_hits / 5) * 100)
 
         # Business value scoring
+        # Design decision: Recruiters and clients care about business outcomes, not just tech.
+        # We prioritize words that show real-world impact and problem-solving ability.
+        # This distinguishes professional content from purely academic content.
         value_indicators = [
             "production",
             "scale",
@@ -668,6 +694,9 @@ def analyze_content_for_opportunities(
         value_score = min(100, (value_hits / 5) * 100)
 
         # Portfolio mention detection
+        # Design decision: Mentioning projects demonstrates hands-on experience.
+        # This is critical for converting interest into opportunities.
+        # We use a lower threshold (3 mentions = 100) since portfolios are mentioned sparingly.
         portfolio_indicators = ["project", "github", "kaggle", "built", "developed", "implemented"]
         portfolio_mentions = sum(
             1 for indicator in portfolio_indicators if indicator in content_lower
@@ -675,6 +704,10 @@ def analyze_content_for_opportunities(
         portfolio_score = min(100, (portfolio_mentions / 3) * 100)
 
         # Calculate overall opportunity score
+        # Design decision: Weighted scoring gives highest priority to SEO and engagement (30% each)
+        # because these directly impact visibility and connection rate. Business value (25%) and
+        # portfolio (15%) are supporting factors. This weighting was designed based on LinkedIn's
+        # algorithm priorities and recruiter behavior patterns.
         opportunity_score = int(
             seo_score * 0.3 + engagement_score * 0.3 + value_score * 0.25 + portfolio_score * 0.15
         )

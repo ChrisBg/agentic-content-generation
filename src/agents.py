@@ -399,15 +399,30 @@ def create_content_generation_pipeline() -> SequentialAgent:
     4. LinkedInOptimizationAgent: Optimize LinkedIn for opportunities
     5. ReviewAgent: Verify, polish, and score
 
+    Design decision: We use SequentialAgent (not ParallelAgent) because each agent
+    depends on the outputs of previous agents. The state flows linearly through
+    the pipeline via the output_key/placeholder pattern, where each agent's
+    output_key becomes available as {placeholder} for subsequent agents.
+
+    The 5-agent architecture balances specialization with maintainability:
+    - Research: Academic credibility through paper sources
+    - Strategy: Professional positioning and audience targeting
+    - Content: Platform-specific format optimization
+    - LinkedIn: Opportunity generation (SEO, engagement, portfolio)
+    - Review: Quality assurance and scoring
+
     Returns:
         SequentialAgent orchestrating the complete workflow
     """
+    # Create all specialized agents
     research_agent = create_research_agent()
     strategy_agent = create_strategy_agent()
     content_agent = create_content_generator_agent()
     linkedin_optimizer = create_linkedin_optimization_agent()
     review_agent = create_review_agent()
 
+    # Design decision: Order matters! Each agent builds on previous outputs.
+    # Do not reorder without updating placeholder references in instructions.
     return SequentialAgent(
         name=ROOT_AGENT_NAME,
         description="Complete scientific content generation system with professional opportunity optimization",

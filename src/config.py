@@ -16,6 +16,11 @@ os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = os.getenv("GOOGLE_GENAI_USE_VERTEXAI",
 DEFAULT_MODEL = "gemini-2.0-flash-exp"
 
 # Retry configuration for transient failures
+# Design decision: We use exponential backoff with 5 attempts to handle:
+# - 429: Rate limiting (common with Gemini API free tier)
+# - 500/503/504: Temporary server issues
+# exp_base=7 gives: 1s, 7s, 49s... - aggressive enough for production use
+# This ensures the agent completes tasks even with intermittent API issues
 RETRY_CONFIG = types.HttpRetryOptions(
     attempts=5, exp_base=7, initial_delay=1, http_status_codes=[429, 500, 503, 504]
 )
