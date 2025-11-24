@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 import requests
+from duckduckgo_search import DDGS
 
 
 def search_papers(topic: str, max_results: int = 5) -> dict[str, Any]:
@@ -106,6 +107,48 @@ def search_papers(topic: str, max_results: int = 5) -> dict[str, Any]:
         return {"status": "error", "error_message": f"Failed to search papers: {str(e)}"}
     except Exception as e:
         return {"status": "error", "error_message": f"Unexpected error: {str(e)}"}
+
+
+def search_web(query: str, max_results: int = 5) -> dict[str, Any]:
+    """Search the web for information using DuckDuckGo.
+
+    Use this tool to find:
+    - Recent news and industry trends
+    - Blog posts and technical articles
+    - Company information and market data
+    - Real-world examples and case studies
+
+    Args:
+        query: The search query
+        max_results: Maximum number of results to return (default: 5)
+
+    Returns:
+        A dictionary containing:
+        - status: "success" or "error"
+        - results: List of search results (title, link, snippet)
+        - error_message: Error description if status is "error"
+    """
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+
+        if not results:
+            return {"status": "success", "results": [], "count": 0}
+
+        formatted_results = []
+        for r in results:
+            formatted_results.append(
+                {
+                    "title": r.get("title", ""),
+                    "link": r.get("href", ""),
+                    "snippet": r.get("body", ""),
+                }
+            )
+
+        return {"status": "success", "results": formatted_results, "count": len(formatted_results)}
+
+    except Exception as e:
+        return {"status": "error", "error_message": f"Web search error: {str(e)}"}
 
 
 def format_for_platform(content: str, platform: str, topic: str = "") -> dict[str, Any]:
@@ -359,10 +402,32 @@ def search_industry_trends(
         - error_message: Error description if status is "error"
     """
     try:
-        # Simulated industry trends based on common AI/ML patterns
-        # In production, could integrate with job boards APIs (LinkedIn, Indeed)
-        # or use Google Trends API
+        # Use search_web to find real trends
+        search_query = f"latest trends in {field} {region} {2024}"
 
+        # We'll use the newly created search_web function
+        # Note: In a real circular dependency scenario, we might need to handle imports differently,
+        # but here they are in the same file.
+        search_results = search_web(search_query, max_results=max_results)
+
+        if search_results.get("status") == "error":
+            return search_results
+
+        results = search_results.get("results", [])
+
+        trends = []
+        for r in results:
+            trends.append(f"{r['title']}: {r['snippet']}")
+
+        if not trends:
+            # Fallback if search fails to return good results
+            trends = [
+                f"Growing demand for {field} expertise in {region}",
+                f"Companies seeking production-ready {field} solutions",
+                "Emphasis on practical implementation over pure research",
+            ]
+
+        # Basic skill mapping is still useful as a baseline
         skill_mapping = {
             "machine learning": ["PyTorch", "TensorFlow", "Scikit-learn", "MLflow", "Kubeflow"],
             "nlp": ["Transformers", "LangChain", "OpenAI API", "HuggingFace", "spaCy"],
@@ -379,14 +444,6 @@ def search_industry_trends(
 
         if not hot_skills:
             hot_skills = ["Python", "PyTorch", "Cloud Platforms", "API Development"]
-
-        trends = [
-            f"Growing demand for {field} expertise in {region}",
-            f"Companies seeking production-ready {field} solutions",
-            "Emphasis on practical implementation over pure research",
-            f"Need for professionals who can explain {field} to non-technical stakeholders",
-            f"Integration of {field} with existing business systems is top priority",
-        ]
 
         pain_points = [
             f"Difficulty finding experienced {field} professionals",

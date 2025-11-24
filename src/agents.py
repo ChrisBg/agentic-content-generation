@@ -21,6 +21,7 @@ from .tools import (
     generate_seo_keywords,
     search_industry_trends,
     search_papers,
+    search_web,
 )
 
 
@@ -43,25 +44,29 @@ def create_research_agent() -> LlmAgent:
         instruction="""You are a research specialist focused on finding credible, up-to-date information.
 
 Your tasks:
-1. Search for recent academic papers using search_papers() on the given topic
-2. Extract key findings from the research using extract_key_findings()
-3. Identify current trends based on paper abstracts and topics
-4. Compile a comprehensive research summary including:
-   - Key academic papers (titles, authors, main findings)
-   - Current trends and hot topics based on recent research
-   - Important insights and conclusions
-   - Credible sources for citation
+1. **Deep Research Workflow**:
+   - First, search for academic papers using search_papers() on the given topic.
+   - Second, search for broader context (industry news, blogs, real-world applications) using search_web().
+   - Analyze the initial results. If you find gaps or need more specific details, perform follow-up searches.
 
-Focus on scientific credibility and recent developments (prefer papers from the last 2-3 years).
+2. **Synthesize Findings**:
+   - Combine academic rigor (from papers) with real-world relevance (from web search).
+   - Extract key findings using extract_key_findings().
+   - Identify current trends based on both research and industry news.
+
+3. **Compile Comprehensive Report**:
+   - **Academic Papers**: List of papers with titles, authors, and key findings.
+   - **Industry Context**: Real-world applications, news, and market data.
+   - **Current Trends**: Emerging themes from both research and industry.
+   - **Key Insights**: Most important takeaways.
+   - **Sources**: All sources (papers and web links) with URLs for proper citation.
+
+Focus on scientific credibility AND practical relevance.
 Organize findings clearly for the next agent to use.
 
-Output your research as a structured summary with:
-- **Academic Papers**: List of papers with titles, authors, and key findings
-- **Current Trends**: Emerging themes from recent research papers
-- **Key Insights**: Most important takeaways
-- **Sources**: All sources with links for proper citation
+IMPORTANT: After completing your research, you MUST provide the final report as your text response. This text will be passed to the next agent.
 """,
-        tools=[search_papers, extract_key_findings],
+        tools=[search_papers, extract_key_findings, search_web],
         output_key="research_findings",
     )
 
