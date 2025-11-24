@@ -4,7 +4,7 @@ An AI-powered agent system that generates research-backed content (blog articles
 
 ## Features
 
-- 🔬 **Research-Backed Content**: Automatically searches academic papers and current trends
+- 🔬 **Deep Research**: Iteratively searches academic papers (arXiv) and web sources (DuckDuckGo) for comprehensive insights
 - 📝 **Multi-Platform Output**: Generates tailored content for blogs, LinkedIn, and Twitter
 - 🎯 **Professional Credibility**: Creates content that builds scientific authority
 - 📚 **Proper Citations**: Includes formatted references and source attribution
@@ -26,7 +26,7 @@ graph TD
     E -->|optimized_linkedin| F[ReviewAgent]
     F -->|final_content| G[Output: Blog + LinkedIn + Twitter]
 
-    B -.->|Tools| B1[search_papers<br/>extract_key_findings]
+    B -.->|Tools| B1[search_papers<br/>search_web<br/>extract_key_findings]
     C -.->|Reasoning| C1[No tools<br/>Strategy planning]
     D -.->|Tools| D1[format_for_platform]
     E -.->|Tools| E1[generate_seo_keywords<br/>create_engagement_hooks<br/>search_industry_trends]
@@ -42,9 +42,10 @@ graph TD
 ### Agent Pipeline
 
 1. **ResearchAgent** 🔬
+   - Performs **Deep Research** using an iterative workflow
    - Searches academic papers via arXiv API
-   - Extracts key findings from research
-   - Identifies current trends
+   - Searches the web for industry news and real-world context (DuckDuckGo)
+   - Synthesizes findings from multiple sources
    - **Output**: `research_findings`
 
 2. **StrategyAgent** 🎯
