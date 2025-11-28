@@ -5,3 +5,5 @@ google-genai>=0.1.0
 # Additional dependencies
 python-dotenv>=1.0.0
 requests>=2.31.0
+duckduckgo-search>=6.0.0
+google-cloud-aiplatform>=1.38.0
