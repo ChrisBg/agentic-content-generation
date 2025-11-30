@@ -1,0 +1,19 @@
+graph TD
+    A[User Input: Topic + Profile] --> B[ResearchAgent]
+    B -->|research_findings| C[StrategyAgent]
+    C -->|content_strategy| D[ContentGeneratorAgent]
+    D -->|generated_content| E[LinkedInOptimizationAgent]
+    E -->|optimized_linkedin| F[ReviewAgent]
+    F -->|final_content| G[Output: Blog + LinkedIn + Twitter]
+
+    B -.->|Tools| B1[search_papers<br/>search_web<br/>extract_key_findings]
+    C -.->|Reasoning| C1[No tools<br/>Strategy planning]
+    D -.->|Tools| D1[format_for_platform]
+    E -.->|Tools| E1[generate_seo_keywords<br/>create_engagement_hooks<br/>search_industry_trends]
+    F -.->|Tools| F1[generate_citations<br/>analyze_content_for_opportunities]
+
+    style B fill:#e1f5ff
+    style C fill:#fff3e0
+    style D fill:#f3e5f5
+    style E fill:#e8f5e9
+    style F fill:#fce4ec
