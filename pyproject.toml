@@ -5,16 +5,25 @@ description = "AI-powered agent system for generating research-backed content"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "google-adk>=0.1.0",
-    "google-genai>=0.1.0",
+    "google-adk[eval]>=0.1.0",
+    "google-genai>=0.2.1",
+    "duckduckgo-search>=6.0.0",
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
+    "pyyaml>=6.0",
+    "sqlalchemy>=2.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "ruff>=0.1.0",
     "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+]
+ui = [
+    "gradio>=4.0.0",
+    "pandas>=2.0.0",
 ]
 
 [tool.ruff]
@@ -82,3 +91,22 @@ packages = ["src"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow tests",
+]

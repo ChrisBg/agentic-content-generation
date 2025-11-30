@@ -1,7 +1,11 @@
 """User professional profile configuration for personalized content generation."""
 
+import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any
+
+import yaml
 
 
 @dataclass
@@ -15,12 +19,12 @@ class UserProfile:
     # Professional Identity
     name: str = "Your Name"
     target_role: str = "AI Consultant"  # AI Consultant, ML Engineer, AI Architect, etc.
-    expertise_areas: List[str] = field(
+    expertise_areas: list[str] = field(
         default_factory=lambda: ["Machine Learning", "Artificial Intelligence", "Deep Learning"]
     )
 
     # Professional Goals
-    content_goals: List[str] = field(
+    content_goals: list[str] = field(
         default_factory=lambda: [
             "opportunities",  # Attract freelance/job opportunities
             "credibility",  # Build professional credibility
@@ -30,8 +34,8 @@ class UserProfile:
 
     # Geographic & Market
     region: str = "Europe"  # Europe, US, Asia, Global, etc.
-    languages: List[str] = field(default_factory=lambda: ["English"])
-    target_industries: List[str] = field(
+    languages: list[str] = field(default_factory=lambda: ["English"])
+    target_industries: list[str] = field(
         default_factory=lambda: ["Technology", "Finance", "Healthcare", "Consulting"]
     )
 
@@ -42,7 +46,7 @@ class UserProfile:
     kaggle_username: str = ""  # Your Kaggle username
 
     # Key Projects (to mention in content)
-    notable_projects: List[Dict[str, str]] = field(
+    notable_projects: list[dict[str, str]] = field(
         default_factory=lambda: [
             {
                 "name": "Project Name",
@@ -54,7 +58,7 @@ class UserProfile:
     )
 
     # Technical Skills & Tools
-    primary_skills: List[str] = field(
+    primary_skills: list[str] = field(
         default_factory=lambda: ["Python", "PyTorch", "TensorFlow", "Scikit-learn", "MLflow"]
     )
 
@@ -69,7 +73,7 @@ class UserProfile:
     unique_value_proposition: str = (
         "I help companies turn AI research into production-ready solutions"
     )
-    key_differentiators: List[str] = field(
+    key_differentiators: list[str] = field(
         default_factory=lambda: [
             "Bridging research and production",
             "End-to-end AI implementation",
@@ -77,7 +81,7 @@ class UserProfile:
         ]
     )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert profile to dictionary for agent context."""
         return {
             "name": self.name,
@@ -131,23 +135,222 @@ class UserProfile:
 
         return summary
 
+    def validate(self) -> dict[str, list[str]]:
+        """Validate profile completeness and correctness.
+
+        Returns:
+            Dictionary with 'errors' and 'warnings' lists
+        """
+        errors = []
+        warnings = []
+
+        # Validate required fields
+        if self.name == "Your Name" or not self.name.strip():
+            warnings.append("⚠️  Name is not set. Please update 'name' field in profile.yaml")
+
+        if not self.expertise_areas or (
+            len(self.expertise_areas) == 3
+            and self.expertise_areas[0] == "Machine Learning"
+            and self.expertise_areas[1] == "Artificial Intelligence"
+        ):
+            warnings.append(
+                "⚠️  Using default expertise areas. Update 'expertise_areas' with your specific skills"
+            )
+
+        # Validate URLs
+        url_pattern = re.compile(
+            r"^https?://"  # http:// or https://
+            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|"  # domain...
+            r"localhost|"  # localhost...
+            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # ...or ip
+            r"(?::\d+)?"  # optional port
+            r"(?:/?|[/?]\S+)$",
+            re.IGNORECASE,
+        )
+
+        if self.linkedin_url and not url_pattern.match(self.linkedin_url):
+            errors.append(
+                f"❌ Invalid LinkedIn URL: '{self.linkedin_url}'. Must start with http:// or https://"
+            )
+
+        if self.portfolio_url and not url_pattern.match(self.portfolio_url):
+            errors.append(
+                f"❌ Invalid portfolio URL: '{self.portfolio_url}'. Must start with http:// or https://"
+            )
+
+        # Validate GitHub username (no special URL validation, just username)
+        if self.github_username and "/" in self.github_username:
+            warnings.append(
+                f"⚠️  GitHub username should be just the username, not a URL: '{self.github_username}'"
+            )
+
+        # Validate Kaggle username
+        if self.kaggle_username and "/" in self.kaggle_username:
+            warnings.append(
+                f"⚠️  Kaggle username should be just the username, not a URL: '{self.kaggle_username}'"
+            )
+
+        # Validate content_tone enum
+        valid_tones = ["professional-formal", "professional-conversational", "technical", "casual"]
+        if self.content_tone not in valid_tones:
+            errors.append(
+                f"❌ Invalid content_tone: '{self.content_tone}'. "
+                f"Valid options: {', '.join(valid_tones)}"
+            )
+
+        # Validate content_goals
+        valid_goals = [
+            "opportunities",
+            "credibility",
+            "visibility",
+            "thought-leadership",
+            "networking",
+        ]
+        invalid_goals = [g for g in self.content_goals if g not in valid_goals]
+        if invalid_goals:
+            warnings.append(
+                f"⚠️  Unrecognized content goals: {', '.join(invalid_goals)}. "
+                f"Valid options: {', '.join(valid_goals)}"
+            )
+
+        # Validate posting_frequency
+        valid_frequencies = ["daily", "2-3x per week", "weekly", "biweekly", "monthly"]
+        if self.posting_frequency not in valid_frequencies:
+            warnings.append(
+                f"⚠️  Unrecognized posting frequency: '{self.posting_frequency}'. "
+                f"Valid options: {', '.join(valid_frequencies)}"
+            )
+
+        # Validate lists are not empty
+        if not self.expertise_areas:
+            errors.append(
+                "❌ 'expertise_areas' cannot be empty. Add at least one area of expertise"
+            )
+
+        if not self.primary_skills:
+            warnings.append("⚠️  'primary_skills' is empty. Consider adding your technical skills")
+
+        if not self.target_industries:
+            warnings.append("⚠️  'target_industries' is empty. Consider adding target industries")
+
+        # Validate notable_projects structure
+        for idx, project in enumerate(self.notable_projects):
+            required_keys = ["name", "description", "technologies", "url"]
+            missing_keys = [key for key in required_keys if key not in project]
+            if missing_keys:
+                warnings.append(f"⚠️  Project {idx + 1} missing keys: {', '.join(missing_keys)}")
+
+            # Check if still using default project
+            if project.get("name") == "Project Name":
+                warnings.append(
+                    "⚠️  Using default project placeholder. Update 'notable_projects' with your actual projects"
+                )
+                break  # Only warn once
+
+        # Validate unique_value_proposition
+        if (
+            self.unique_value_proposition
+            == "I help companies turn AI research into production-ready solutions"
+        ):
+            warnings.append(
+                "⚠️  Using default value proposition. Update 'unique_value_proposition' with your unique offering"
+            )
+
+        return {"errors": errors, "warnings": warnings}
+
 
 # Default profile (users should customize this)
 DEFAULT_PROFILE = UserProfile()
 
+# Path to user profile configuration
+PROFILE_DIR = Path.home() / ".agentic-content-generation"
+PROFILE_PATH = PROFILE_DIR / "profile.yaml"
 
-def load_user_profile() -> UserProfile:
+
+def load_profile_from_yaml(path: Path) -> UserProfile:
+    """Load user profile from YAML file.
+
+    Args:
+        path: Path to the YAML file
+
+    Returns:
+        UserProfile instance
+    """
+    if not path.exists():
+        return DEFAULT_PROFILE
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            if not data:
+                return DEFAULT_PROFILE
+            # Filter out any keys that don't exist in UserProfile
+            valid_keys = UserProfile.__annotations__.keys()
+            filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+            return UserProfile(**filtered_data)
+    except Exception as e:
+        print(f"Warning: Failed to load profile from {path}: {e}")
+        return DEFAULT_PROFILE
+
+
+def save_profile_to_yaml(profile: UserProfile, path: Path) -> None:
+    """Save user profile to YAML file.
+
+    Args:
+        profile: UserProfile instance
+        path: Path to save the YAML file
+    """
+    # Create directory if it doesn't exist
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.dump(profile.to_dict(), f, default_flow_style=False, sort_keys=False)
+
+
+def load_user_profile(validate: bool = True) -> UserProfile:
     """Load user profile from configuration.
 
-    In future, this could load from a config file or database.
-    For now, users should edit this file directly.
+    Checks ~/.agentic-content-generation/profile.yaml first.
+    Falls back to default profile if not found.
+
+    Args:
+        validate: Whether to run validation and display warnings/errors
+
+    Returns:
+        UserProfile instance
     """
-    # TODO: Load from ~/.agentic-content/profile.yaml or similar
-    return DEFAULT_PROFILE
+    if PROFILE_PATH.exists():
+        print(f"👤 Loading profile from {PROFILE_PATH}")
+        profile = load_profile_from_yaml(PROFILE_PATH)
+    else:
+        print("👤 Using default profile (no custom profile found)")
+        print(f"💡 Run with --init-profile to create one at {PROFILE_PATH}")
+        profile = DEFAULT_PROFILE
+
+    # Validate profile if requested
+    if validate:
+        validation = profile.validate()
+        errors = validation["errors"]
+        warnings = validation["warnings"]
+
+        if errors:
+            print("\n❌ Profile Validation Errors:")
+            for error in errors:
+                print(f"   {error}")
+            print("\n⚠️  Please fix these errors in your profile.yaml before continuing.\n")
+            raise ValueError(f"Profile validation failed with {len(errors)} error(s)")
+
+        if warnings:
+            print("\n📋 Profile Validation Warnings:")
+            for warning in warnings:
+                print(f"   {warning}")
+            print()
+
+    return profile
 
 
 def create_custom_profile(
-    name: str, target_role: str, expertise_areas: List[str], **kwargs
+    name: str, target_role: str, expertise_areas: list[str], **kwargs
 ) -> UserProfile:
     """Create a custom user profile.
 

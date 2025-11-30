@@ -1,4 +1,4 @@
-.PHONY: help install dev format lint check test run clean
+.PHONY: help install dev format lint check test run ui clean
 
 help:  ## Show this help message
 	@echo "Available commands:"
@@ -28,6 +28,11 @@ test:  ## Run tests
 
 run:  ## Run the main agent
 	python main.py
+
+ui:  ## Launch the Gradio web interface
+	@echo "🚀 Launching Gradio UI..."
+	@echo "📍 Access at: http://localhost:7860"
+	python ui_app.py
 
 clean:  ## Clean up generated files
 	rm -rf .ruff_cache __pycache__ .pytest_cache

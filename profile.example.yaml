@@ -1,0 +1,156 @@
+# User Profile Configuration for Scientific Content Generation Agent
+#
+# This file defines your professional profile for personalized content generation.
+# Copy this file to ~/.agentic-content-generation/profile.yaml and customize it.
+#
+# Quick Start:
+#   1. Run: python main.py --init-profile
+#   2. Edit: ~/.agentic-content-generation/profile.yaml
+#   3. Validate: python main.py --validate-profile
+#   4. Generate content: python main.py --topic "Your Topic"
+
+# =============================================================================
+# PROFESSIONAL IDENTITY
+# =============================================================================
+
+# Your full name (used for attribution and session tracking)
+name: John Doe
+
+# Your target professional role (what you want to be known for)
+# Examples: AI Consultant, ML Engineer, Data Scientist, AI Architect,
+#           Research Scientist, AI Product Manager, MLOps Engineer
+target_role: Lead Data Scientist
+
+# Your areas of expertise (3-5 recommended)
+# These will be emphasized in content generation
+expertise_areas:
+  - Machine Learning
+  - Natural Language Processing
+  - Computer Vision
+  - MLOps
+  - AI Strategy
+
+# =============================================================================
+# PROFESSIONAL GOALS
+# =============================================================================
+
+# What you want to achieve with your content
+# Valid options: opportunities, credibility, visibility, thought-leadership, networking
+content_goals:
+  - opportunities      # Attract freelance/consulting/job opportunities
+  - credibility        # Build professional credibility
+  - visibility         # Increase visibility in the field
+
+# =============================================================================
+# GEOGRAPHIC & MARKET
+# =============================================================================
+
+# Your primary region (affects industry trends and SEO)
+# Examples: Europe, US, Asia, Global, UK, Canada, Australia
+region: Europe
+
+# Languages you create content in
+languages:
+  - English
+  - French
+
+# Target industries for your content
+target_industries:
+  - Technology
+  - Finance
+  - Advertising
+  - Marketing
+  - Media
+  - Cybersecurity
+
+# =============================================================================
+# PORTFOLIO & ONLINE PRESENCE
+# =============================================================================
+
+# Your GitHub username (not the full URL, just username)
+# Example: octocat
+github_username: johndoe
+
+# Your LinkedIn profile URL (full URL)
+# Example: https://www.linkedin.com/in/johndoe
+linkedin_url: https://www.linkedin.com/in/johndoe
+
+# Your personal portfolio/website URL (full URL)
+# Example: https://johndoe.com
+portfolio_url: https://johndoe.com
+
+# Your Kaggle username (not the full URL, just username)
+# Example: johndoe
+kaggle_username: johndoe
+
+# =============================================================================
+# NOTABLE PROJECTS
+# =============================================================================
+
+# Key projects to mention in your content (3-5 recommended)
+# These help demonstrate your expertise and provide portfolio links
+notable_projects:
+  - name: AI-Powered Recommendation Engine
+    description: Built a scalable recommendation system serving 1M+ users
+    technologies: PyTorch, FastAPI, Redis, Kubernetes
+    url: https://github.com/johndoe/recommendation-engine
+
+  - name: Medical Image Classification System
+    description: Deep learning model for detecting pneumonia from X-rays (95% accuracy)
+    technologies: TensorFlow, OpenCV, Docker, AWS SageMaker
+    url: https://github.com/johndoe/medical-imaging
+
+  - name: Real-Time Sentiment Analysis API
+    description: Production NLP API processing 10k requests/day
+    technologies: Transformers, Flask, PostgreSQL, Celery
+    url: https://github.com/johndoe/sentiment-api
+
+# =============================================================================
+# TECHNICAL SKILLS & TOOLS
+# =============================================================================
+
+# Your primary technical skills (top 5-10)
+# These will be used for SEO keywords and skills matching
+primary_skills:
+  - Python
+  - PyTorch
+  - TensorFlow
+  - Scikit-learn
+  - Transformers
+  - FastAPI
+  - Docker
+  - Kubernetes
+  - AWS
+  - MLflow
+
+# =============================================================================
+# CONTENT PREFERENCES
+# =============================================================================
+
+# Tone for your content
+# Valid options: professional-formal, professional-conversational, technical, casual
+content_tone: professional-conversational
+
+# Whether to use emojis in LinkedIn posts (true/false)
+use_emojis: true
+
+# Your target posting frequency
+# Valid options: daily, 2-3x per week, weekly, biweekly, monthly
+posting_frequency: 2-3x per week
+
+# =============================================================================
+# SEO & POSITIONING
+# =============================================================================
+
+# Your unique value proposition (1-2 sentences)
+# What makes you different? What specific problem do you solve?
+unique_value_proposition: I help companies bridge the gap between AI research and production by building scalable, reliable ML systems that deliver measurable business value.
+
+# Key differentiators (3-5 bullet points)
+# What sets you apart from other professionals in your field?
+key_differentiators:
+  - End-to-end ML pipeline design and implementation
+  - 5+ years scaling ML systems in production
+  - Strong focus on business ROI and practical impact
+  - Research-backed approach with real-world pragmatism
+  - Expert in both cloud-native and edge ML deployment

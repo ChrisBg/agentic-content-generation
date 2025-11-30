@@ -1,0 +1,26 @@
+{
+    "eval_set_id": "debug_test",
+    "eval_cases": [
+        {
+            "eval_id": "test_1",
+            "conversation": [
+                {
+                    "user_content": {
+                        "parts": [
+                            {
+                                "text": "Hello"
+                            }
+                        ]
+                    },
+                    "final_response": {
+                        "parts": [
+                            {
+                                "text": "Hello there"
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+}
