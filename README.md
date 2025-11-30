@@ -118,7 +118,29 @@ make run
 
 ## Usage
 
-### Quick Start
+### Web Interface (Recommended) 🌐
+
+The easiest way to use the agent is through the **Gradio web interface**:
+
+```bash
+# Launch the web UI
+python ui_app.py
+
+# Or use the Make command
+make ui
+```
+
+Then open your browser to **http://localhost:7860**
+
+**Features:**
+- 🚀 **Generate Content**: Interactive form with real-time progress tracking
+- 👤 **Profile Editor**: Edit all profile fields with validation
+- 📚 **Session History**: View, resume, and delete past generations
+- ⚙️ **Settings**: Configure API keys and content preferences
+
+### Command Line Interface
+
+For advanced users, use the CLI:
 
 ```bash
 # 1. Initialize your profile
