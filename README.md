@@ -92,7 +92,7 @@ The agents communicate via the **output_key/placeholder pattern**:
 
 ### Quick Setup
 
-See [SETUP.md](SETUP.md) for detailed step-by-step instructions.
+See [SETUP.md](docs/guides/SETUP.md) for detailed step-by-step instructions.
 
 ```bash
 # 1. Install uv (if not installed)
@@ -290,7 +290,11 @@ agentic-content-generation/
 ├── pyproject.toml            # Project config (uv, ruff, pytest)
 ├── Makefile                  # Development commands
 ├── .env.example              # Environment variable template
-├── SETUP.md                  # Quick setup guide
+├── docs/                     # Documentation
+│   ├── guides/               # Setup and usage guides
+│   ├── deployment/           # Deployment instructions
+│   ├── PROFILES.md           # Profile system documentation
+│   └── SESSIONS.md           # Session management documentation
 └── README.md                 # This file
 ```
 
