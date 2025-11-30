@@ -58,6 +58,8 @@ async def run_content_generation(topic: str, preferences: dict = None, session_i
     agent = create_content_generation_pipeline()
 
     # Configure logging
+    # Ensure log directory exists
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=getattr(logging, LOG_LEVEL),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -68,6 +70,8 @@ async def run_content_generation(topic: str, preferences: dict = None, session_i
     )
 
     # Initialize persistent session service
+    # Ensure the directory exists (important for cloud environments like HF Spaces)
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     db_path = PROFILE_DIR / "sessions.db"
     db_url = f"sqlite:///{db_path}"
     session_service = DatabaseSessionService(db_url=db_url)
