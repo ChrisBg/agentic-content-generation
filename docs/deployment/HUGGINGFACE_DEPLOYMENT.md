@@ -42,7 +42,7 @@ cp main.py ../scientific-content-agent/
 cp app.py ../scientific-content-agent/
 cp ui_app.py ../scientific-content-agent/
 cp requirements.txt ../scientific-content-agent/
-cp README_HF_SPACES.md ../scientific-content-agent/README.md
+cp docs/README_HF_SPACES.md ../scientific-content-agent/README.md
 cp .env.example ../scientific-content-agent/
 
 # Optional: Copy profile example
@@ -55,7 +55,7 @@ Or manually copy these files:
 - `app.py`
 - `ui_app.py`
 - `requirements.txt`
-- `README_HF_SPACES.md` → rename to `README.md`
+- `docs/README_HF_SPACES.md` → rename to `README.md`
 - `.env.example`
 
 ### 4. Configure API Key as a Secret

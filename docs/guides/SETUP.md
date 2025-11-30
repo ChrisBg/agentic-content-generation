@@ -235,7 +235,7 @@ make lint
 
 ## Need Help?
 
-- See [README.md](README.md) for detailed documentation
-- See [CLAUDE.md](../CLAUDE.md) for architecture details
+- See [README.md](../../README.md) for main documentation
+- See [CLAUDE.md](../../CLAUDE.md) for architecture details (if available)
 - Check the [notebooks/](notebooks/) for ADK framework examples
 - Run `make help` to see available commands

@@ -22,7 +22,7 @@ cp ../agentic-content-generation/main.py .
 cp ../agentic-content-generation/app.py .
 cp ../agentic-content-generation/ui_app.py .
 cp ../agentic-content-generation/requirements.txt .
-cp ../agentic-content-generation/README_HF_SPACES.md ./README.md
+cp ../agentic-content-generation/docs/README_HF_SPACES.md ./README.md
 cp ../agentic-content-generation/.env.example .
 ```
 
@@ -30,7 +30,7 @@ Or use this one-liner:
 ```bash
 cd scientific-content-agent && \
 cp -r ../agentic-content-generation/{src,main.py,app.py,ui_app.py,requirements.txt,.env.example} . && \
-cp ../agentic-content-generation/README_HF_SPACES.md README.md
+cp ../agentic-content-generation/docs/README_HF_SPACES.md README.md
 ```
 
 ### 3. Push to HF (1 minute)
@@ -76,7 +76,7 @@ scientific-content-agent/          (HF Space repo)
 ├── app.py                         ← Copy from your project
 ├── ui_app.py                      ← Copy from your project
 ├── requirements.txt               ← Copy from your project
-├── README.md                      ← Copy README_HF_SPACES.md as README.md
+├── README.md                      ← Copy docs/README_HF_SPACES.md as README.md
 └── .env.example                   ← Optional, for documentation
 ```
 
@@ -91,7 +91,7 @@ scientific-content-agent/          (HF Space repo)
 - Or configure it in the Settings tab
 
 **Need more help?**
-See [HUGGINGFACE_DEPLOYMENT.md](HUGGINGFACE_DEPLOYMENT.md) for detailed guide
+See [HUGGINGFACE_DEPLOYMENT.md](./HUGGINGFACE_DEPLOYMENT.md) for detailed guide
 
 ## Update Your Space
 
