@@ -73,7 +73,8 @@ async def run_content_generation(topic: str, preferences: dict = None, session_i
     # Ensure the directory exists (important for cloud environments like HF Spaces)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     db_path = PROFILE_DIR / "sessions.db"
-    db_url = f"sqlite:///{db_path}"
+    # Use aiosqlite driver for async SQLite (required by ADK's DatabaseSessionService)
+    db_url = f"sqlite+aiosqlite:///{db_path}"
     session_service = DatabaseSessionService(db_url=db_url)
 
     # Create runner
