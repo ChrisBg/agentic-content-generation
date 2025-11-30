@@ -2,9 +2,8 @@
 
 import os
 import subprocess
-from pathlib import Path
 
-from src.profile import PROFILE_PATH, load_profile_from_yaml, save_profile_to_yaml
+from src.profile import PROFILE_PATH
 
 
 def get_editor() -> str:
@@ -70,52 +69,6 @@ def edit_profile_interactive() -> bool:
         print("   export EDITOR=vim")
         print("   export EDITOR=code  # VS Code")
         print("   export EDITOR=emacs")
-        return False
-
-
-def show_profile_diff(path: Path) -> None:
-    """Show a diff of profile changes.
-
-    Args:
-        path: Path to the profile file
-    """
-    # This is a placeholder for future implementation
-    # Could use difflib or external diff tool
-    pass
-
-
-def edit_profile_field(field_name: str, new_value: str) -> bool:
-    """Edit a specific profile field programmatically.
-
-    Args:
-        field_name: Name of the field to edit
-        new_value: New value for the field
-
-    Returns:
-        True if successful, False otherwise
-    """
-    if not PROFILE_PATH.exists():
-        print(f"❌ Profile not found at {PROFILE_PATH}")
-        return False
-
-    try:
-        # Load profile
-        profile = load_profile_from_yaml(PROFILE_PATH)
-
-        # Update field
-        if not hasattr(profile, field_name):
-            print(f"❌ Unknown field: {field_name}")
-            return False
-
-        setattr(profile, field_name, new_value)
-
-        # Save profile
-        save_profile_to_yaml(profile, PROFILE_PATH)
-        print(f"✅ Updated {field_name} to: {new_value}")
-        return True
-
-    except Exception as e:
-        print(f"❌ Failed to update profile: {e}")
         return False
 
 
