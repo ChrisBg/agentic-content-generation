@@ -19,7 +19,7 @@ name: John Doe
 # Your target professional role (what you want to be known for)
 # Examples: AI Consultant, ML Engineer, Data Scientist, AI Architect,
 #           Research Scientist, AI Product Manager, MLOps Engineer
-target_role: AI Consultant
+target_role: Lead Data Scientist
 
 # Your areas of expertise (3-5 recommended)
 # These will be emphasized in content generation
@@ -58,9 +58,10 @@ languages:
 target_industries:
   - Technology
   - Finance
-  - Healthcare
-  - Consulting
-  - E-commerce
+  - Advertising
+  - Marketing
+  - Media
+  - Cybersecurity
 
 # =============================================================================
 # PORTFOLIO & ONLINE PRESENCE
