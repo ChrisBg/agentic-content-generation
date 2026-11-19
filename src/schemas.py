@@ -106,7 +106,15 @@ class VerifiedPaper(BaseModel):
     url: str = ""
     arxiv_id: str = ""
     doi: str = ""
-    source: Literal["semantic_scholar", "arxiv", "local_bib"] = "semantic_scholar"
+    source: Literal[
+        "semantic_scholar",
+        "arxiv",
+        "openalex",
+        "huggingface_daily",
+        "alphaxiv",
+        "hal",
+        "local_bib",
+    ] = "semantic_scholar"
     bibtex: str = ""
 
 

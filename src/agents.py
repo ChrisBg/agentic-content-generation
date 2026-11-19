@@ -35,6 +35,14 @@ from .config import (
 )
 from .knowledge_base import get_voice_and_style_guide, retrieve_personal_evidence
 from .llm_router import ModelRouter
+from .research_sources import (
+    fetch_alphaxiv_overview,
+    fetch_arxiv_pdf_text,
+    fetch_industry_rss_feeds,
+    search_hal_papers,
+    search_huggingface_daily_papers,
+    search_openalex_papers,
+)
 from .tools import (
     exit_loop,
     generate_bibtex,
@@ -89,31 +97,37 @@ Be concise, structured, and concrete. Output this blueprint as your final respon
 
 
 def create_literature_agent(router: ModelRouter | None = None) -> LlmAgent:
-    """Stage 2a: Hybrid literature discovery + Semantic Scholar citation verification."""
+    """Stage 2a: Hybrid multi-source literature discovery + deep-dive + citation verification."""
     router = router or ModelRouter()
     return LlmAgent(
         name=RESEARCH_AGENT_NAME,
         model=router.get_model("research"),
-        description="Discovers academic papers & industry signals and verifies citations via Semantic Scholar.",
+        description="Discovers & deep-reads papers across Semantic Scholar, OpenAlex, arXiv, alphaXiv, HuggingFace Daily Papers, HAL, and curated AdTech/AI RSS feeds.",
         instruction="""You are a Hybrid Literature & Fact-Grounding Specialist (PaperOrchestra pattern).
 
 Read the blueprint:
 {content_blueprint}
 
-Execute this rigorous workflow:
-1. **Academic Discovery**:
-   - Call `search_semantic_scholar()` on the micro academic queries (preferring well-cited or recent papers).
-   - Call `search_arxiv_papers(..., sort_by="relevance")` for cutting-edge preprints.
-2. **Citation Verification**:
-   - For the top 2-4 papers you intend to cite, verify canonical title/year/authors via `verify_citation_semantic_scholar()` if they came only from arXiv or web snippets.
-   - Call `generate_bibtex()` on the verified papers so a clean BibTeX block is ready for export and LaTeX reuse.
-3. **Industry Grounding**:
-   - Call `search_industry_context()` or `search_web()` for real-world deployment context.
+Execute this rigorous multi-source workflow (choose the most relevant tools for the topic):
+1. **Broad & Domain Academic Discovery**:
+   - Call `search_semantic_scholar()` for well-cited AI/CS papers.
+   - Call `search_openalex_papers()` for broad academic, Econometrics, Finance, Marketing, and AdTech literature.
+   - Call `search_huggingface_daily_papers()` to capture trending AI/Agent papers and linked GitHub repositories.
+   - Call `search_hal_papers()` when French academic / CIR-CII state-of-the-art references add value.
+   - Call `search_arxiv_papers(..., sort_by="relevance")` for the latest preprints.
+2. **Deep-Dive Reading (Beyond Abstracts — for the Top 1-2 arXiv Papers)**:
+   - Call `fetch_alphaxiv_overview(arxiv_id)` for structured methodology, insights, and limitations.
+   - Call `fetch_arxiv_pdf_text(arxiv_id)` if you need exact experimental benchmark tables or ablation numbers from the full PDF.
+3. **Citation Verification & BibTeX**:
+   - Verify canonical title/year/authors via `verify_citation_semantic_scholar()` for key cited papers.
+   - Call `generate_bibtex()` on the verified papers so a clean BibTeX block is ready for export and LaTeX/CIR reuse.
+4. **Industry Grounding**:
+   - Call `fetch_industry_rss_feeds()` (`category="adtech"`, `"ai_engineering"`, or `"all"`) and/or `search_industry_context()` for real-world deployment signals.
 
 Compile a structured **VERIFIED RESEARCH DOSSIER**:
-- **Verified Academic Papers**: Title, Authors, EXACT Year, Venue, Citation Count, URL, and 2-3 bullet factual findings directly supported by the abstract.
+- **Verified Academic Papers**: Title, Authors, EXACT Year, Venue, Citation Count, URL (incl. alphaXiv / GitHub if available), and 2-3 factual findings grounded in the abstract/overview/PDF.
 - **Verified Benchmarks & Quantitative Facts**: Exact numbers with exact source attribution (never extrapolate).
-- **Industry Context**: Practical market signals.
+- **Industry Context**: Practical AdTech / AI Engineering market signals.
 - **BibTeX Block**: The exact output of `generate_bibtex()`.
 
 NEVER fabricate a paper, year, or percentage.
@@ -121,7 +135,13 @@ NEVER fabricate a paper, year, or percentage.
         tools=[
             search_semantic_scholar,
             verify_citation_semantic_scholar,
+            search_openalex_papers,
+            search_huggingface_daily_papers,
+            search_hal_papers,
             search_arxiv_papers,
+            fetch_alphaxiv_overview,
+            fetch_arxiv_pdf_text,
+            fetch_industry_rss_feeds,
             search_industry_context,
             search_web,
             generate_bibtex,

@@ -31,7 +31,13 @@ class TestIndividualAgents:
         tool_names = [t.__name__ for t in agent.tools]
         assert "search_semantic_scholar" in tool_names
         assert "verify_citation_semantic_scholar" in tool_names
+        assert "search_openalex_papers" in tool_names
+        assert "search_huggingface_daily_papers" in tool_names
+        assert "search_hal_papers" in tool_names
         assert "search_arxiv_papers" in tool_names
+        assert "fetch_alphaxiv_overview" in tool_names
+        assert "fetch_arxiv_pdf_text" in tool_names
+        assert "fetch_industry_rss_feeds" in tool_names
         assert "generate_bibtex" in tool_names
         assert agent.output_key == "verified_research"
 
