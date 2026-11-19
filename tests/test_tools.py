@@ -1,474 +1,202 @@
-"""Unit tests for custom tools in src/tools.py."""
+"""Unit tests for v2 grounded research, BibTeX, deterministic linter, and loop tools."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from src.tools import (
-    analyze_content_for_opportunities,
-    create_engagement_hooks,
-    extract_key_findings,
-    format_for_platform,
-    generate_citations,
-    generate_seo_keywords,
-    search_industry_trends,
-    search_papers,
+    exit_loop,
+    generate_bibtex,
+    search_arxiv_papers,
+    search_semantic_scholar,
+    validate_deliverables_deterministic,
+    verify_citation_semantic_scholar,
 )
 
-
-class TestSearchPapers:
-    """Tests for the search_papers tool."""
-
-    def test_search_papers_success(self):
-        """Test successful paper search."""
-        result = search_papers("machine learning", max_results=2)
-
-        assert result["status"] == "success"
-        assert "papers" in result
-        assert len(result["papers"]) <= 2
-        assert result["count"] > 0
-
-        # Check paper structure
-        if result["papers"]:
-            paper = result["papers"][0]
-            assert "title" in paper
-            assert "authors" in paper
-            assert "summary" in paper
-            assert "link" in paper
-
-    def test_search_papers_with_max_results(self):
-        """Test that max_results is respected."""
-        result = search_papers("deep learning", max_results=3)
-
-        assert result["status"] == "success"
-        assert len(result["papers"]) <= 3
-
-    def test_search_papers_empty_topic(self):
-        """Test handling of empty topic."""
-        # Empty topic might still work with arXiv API, or it might fail gracefully
-        result = search_papers("", max_results=1)
-        # Should either return error or handle gracefully
-        assert result["status"] in ["success", "error"]
-
-
-class TestFormatForPlatform:
-    """Tests for the format_for_platform tool."""
-
-    def test_format_blog(self):
-        """Test blog formatting."""
-        content = "This is test content about AI."
-        result = format_for_platform(content, "blog", "Artificial Intelligence")
-
-        assert result["status"] == "success"
-        assert result["platform"] == "blog"
-        assert "formatted_content" in result
-        assert "metadata" in result
-        assert "# Artificial Intelligence" in result["formatted_content"]
-        assert "## References" in result["formatted_content"]
-
-    def test_format_linkedin(self):
-        """Test LinkedIn formatting."""
-        content = "LinkedIn post content about ML."
-        result = format_for_platform(content, "linkedin", "Machine Learning")
-
-        assert result["status"] == "success"
-        assert result["platform"] == "linkedin"
-        assert "Key Takeaways" in result["formatted_content"]
-        assert "#Research" in result["formatted_content"]
-
-    def test_format_twitter(self):
-        """Test Twitter thread formatting."""
-        content = "Twitter thread about AI agents."
-        result = format_for_platform(content, "twitter", "AI Agents")
-
-        assert result["status"] == "success"
-        assert result["platform"] == "twitter"
-        assert "🧵 Thread:" in result["formatted_content"]
-        assert "#Research" in result["formatted_content"]
-
-    def test_format_unsupported_platform(self):
-        """Test error handling for unsupported platform."""
-        result = format_for_platform("content", "tiktok", "AI")
-
-        assert result["status"] == "error"
-        assert "Unsupported platform" in result["error_message"]
-
-    def test_format_case_insensitive(self):
-        """Test that platform names are case-insensitive."""
-        result = format_for_platform("content", "BLOG", "AI")
-
-        assert result["status"] == "success"
-        assert result["platform"] == "blog"
-
-
-class TestGenerateCitations:
-    """Tests for the generate_citations tool."""
-
-    def test_generate_citations_apa(self):
-        """Test APA citation generation."""
-        sources = [
-            {
-                "title": "Deep Learning",
-                "authors": "Goodfellow et al.",
-                "link": "https://arxiv.org/abs/1234.5678",
-                "year": "2016",
-            }
-        ]
-        result = generate_citations(sources, "apa")
-
-        assert result["status"] == "success"
-        assert result["style"] == "apa"
-        assert len(result["citations"]) == 1
-        assert "Goodfellow et al." in result["citations"][0]
-        assert "(2016)" in result["citations"][0]
-
-    def test_generate_citations_mla(self):
-        """Test MLA citation generation."""
-        sources = [{"title": "AI Paper", "authors": "Smith, J.", "link": "url", "year": "2020"}]
-        result = generate_citations(sources, "mla")
-
-        assert result["status"] == "success"
-        assert result["style"] == "mla"
-        assert "Smith, J." in result["citations"][0]
-
-    def test_generate_citations_chicago(self):
-        """Test Chicago citation generation."""
-        sources = [{"title": "ML Study", "authors": "Jones, A.", "link": "url"}]
-        result = generate_citations(sources, "chicago")
-
-        assert result["status"] == "success"
-        assert result["style"] == "chicago"
-
-    def test_generate_citations_empty_sources(self):
-        """Test error handling for empty sources."""
-        result = generate_citations([], "apa")
-
-        assert result["status"] == "error"
-        assert "No sources provided" in result["error_message"]
-
-    def test_generate_citations_default_style(self):
-        """Test that invalid style defaults to APA."""
-        sources = [{"title": "Test", "authors": "Author", "link": "url"}]
-        result = generate_citations(sources, "invalid_style")
-
-        assert result["status"] == "success"
-        assert result["style"] == "apa"
-
-
-class TestExtractKeyFindings:
-    """Tests for the extract_key_findings tool."""
-
-    def test_extract_key_findings_success(self):
-        """Test successful key findings extraction."""
-        text = """
-        Recent research found that deep learning models achieve 95% accuracy.
-        The study demonstrated improved performance on benchmark datasets.
-        Results showed that attention mechanisms are crucial for NLP tasks.
-        Experiments revealed that larger models generally perform better.
-        The analysis concluded that data quality impacts model robustness.
-        """
-        result = extract_key_findings(text, max_findings=3)
-
-        assert result["status"] == "success"
-        assert len(result["findings"]) <= 3
-        assert result["count"] <= 3
-
-    def test_extract_key_findings_with_indicators(self):
-        """Test that indicator words are detected."""
-        text = "The research found significant improvements. The study showed remarkable results."
-        result = extract_key_findings(text, max_findings=5)
-
-        assert result["status"] == "success"
-        assert len(result["findings"]) > 0
-
-    def test_extract_key_findings_insufficient_text(self):
-        """Test error handling for insufficient text."""
-        result = extract_key_findings("short", max_findings=5)
-
-        assert result["status"] == "error"
-        assert "Insufficient research text" in result["error_message"]
-
-    def test_extract_key_findings_empty_text(self):
-        """Test error handling for empty text."""
-        result = extract_key_findings("", max_findings=5)
-
-        assert result["status"] == "error"
-
-
-class TestSearchIndustryTrends:
-    """Tests for the search_industry_trends tool."""
-
-    def test_search_industry_trends_ml(self):
-        """Test industry trends for ML field."""
-        result = search_industry_trends("Machine Learning", region="US", max_results=3)
-
-        assert result["status"] == "success"
-        assert "trends" in result
-        assert "hot_skills" in result
-        assert "pain_points" in result
-        assert len(result["trends"]) <= 3
-        assert result["region"] == "US"
-        assert result["field"] == "Machine Learning"
-
-    def test_search_industry_trends_nlp(self):
-        """Test industry trends for NLP field."""
-        result = search_industry_trends("NLP")
-
-        assert result["status"] == "success"
-        assert any(
-            "Transformers" in skill or "LangChain" in skill for skill in result["hot_skills"]
-        )
-
-    def test_search_industry_trends_cv(self):
-        """Test industry trends for Computer Vision."""
-        result = search_industry_trends("Computer Vision")
-
-        assert result["status"] == "success"
-        assert any("OpenCV" in skill or "YOLO" in skill for skill in result["hot_skills"])
-
-    def test_search_industry_trends_unknown_field(self):
-        """Test handling of unknown field."""
-        result = search_industry_trends("Quantum Computing")
-
-        assert result["status"] == "success"
-        # Should still return generic skills
-        assert len(result["hot_skills"]) > 0
-
-
-class TestGenerateSEOKeywords:
-    """Tests for the generate_seo_keywords tool."""
-
-    def test_generate_seo_keywords_consultant(self):
-        """Test SEO keywords for consultant role."""
-        result = generate_seo_keywords("Machine Learning", role="AI Consultant")
-
-        assert result["status"] == "success"
-        assert "primary_keywords" in result
-        assert "technical_keywords" in result
-        assert "action_keywords" in result
-        assert "combined_phrases" in result
-        assert any("Consultant" in kw for kw in result["primary_keywords"])
-
-    def test_generate_seo_keywords_engineer(self):
-        """Test SEO keywords for engineer role."""
-        result = generate_seo_keywords("Deep Learning", role="ML Engineer")
-
-        assert result["status"] == "success"
-        assert any("Engineer" in kw for kw in result["primary_keywords"])
-
-    def test_generate_seo_keywords_with_topic(self):
-        """Test that topic influences technical keywords."""
-        result = generate_seo_keywords("Natural Language Processing", role="AI Expert")
-
-        assert result["status"] == "success"
-        # Should include NLP-related keywords
-        assert any(
-            kw in result["technical_keywords"]
-            for kw in ["NLP", "LLM", "Transformers", "GPT", "BERT"]
-        )
-
-    def test_generate_seo_keywords_structure(self):
-        """Test the structure of returned keywords."""
-        result = generate_seo_keywords("AI", role="Specialist")
-
-        assert result["status"] == "success"
-        assert len(result["primary_keywords"]) <= 5
-        assert len(result["technical_keywords"]) <= 5
-        assert len(result["action_keywords"]) <= 5
-        assert len(result["combined_phrases"]) > 0
-
-
-class TestCreateEngagementHooks:
-    """Tests for the create_engagement_hooks tool."""
-
-    def test_create_engagement_hooks_opportunities(self):
-        """Test engagement hooks for opportunities goal."""
-        result = create_engagement_hooks("AI Agents", goal="opportunities")
-
-        assert result["status"] == "success"
-        assert result["goal"] == "opportunities"
-        assert len(result["opening_hooks"]) == 3
-        assert len(result["closing_ctas"]) == 3
-        assert len(result["discussion_questions"]) == 3
-        assert len(result["portfolio_prompts"]) == 3
-
-        # Check that hooks are relevant
-        assert any("AI Agents" in hook for hook in result["opening_hooks"])
-
-    def test_create_engagement_hooks_discussion(self):
-        """Test engagement hooks for discussion goal."""
-        result = create_engagement_hooks("Machine Learning", goal="discussion")
-
-        assert result["status"] == "success"
-        assert result["goal"] == "discussion"
-
-    def test_create_engagement_hooks_credibility(self):
-        """Test engagement hooks for credibility goal."""
-        result = create_engagement_hooks("NLP", goal="credibility")
-
-        assert result["status"] == "success"
-        assert result["goal"] == "credibility"
-
-    def test_create_engagement_hooks_visibility(self):
-        """Test engagement hooks for visibility goal."""
-        result = create_engagement_hooks("Computer Vision", goal="visibility")
-
-        assert result["status"] == "success"
-        assert result["goal"] == "visibility"
-
-    def test_create_engagement_hooks_default_goal(self):
-        """Test default goal handling."""
-        result = create_engagement_hooks("AI", goal="invalid_goal")
-
-        assert result["status"] == "success"
-        # Should default to credibility
-        assert len(result["opening_hooks"]) > 0
-
-
-class TestAnalyzeContentForOpportunities:
-    """Tests for the analyze_content_for_opportunities tool."""
-
-    def test_analyze_high_quality_content(self):
-        """Test analysis of high-quality optimized content."""
-        content = """
-        As an AI Consultant specializing in Machine Learning and Deep Learning,
-        I help companies scale their ML solutions to production using PyTorch and TensorFlow.
-
-        Recent projects demonstrate ROI through improved business outcomes and optimized workflows.
-        Let's connect to discuss how I can help solve your AI challenges.
-
-        What are your thoughts on this approach? Have you implemented similar solutions?
-        Follow for more insights on production ML engineering.
-
-        #MachineLearning #AIConsulting #MLOps #Python #DeepLearning
-        """
-        result = analyze_content_for_opportunities(content, target_role="AI Consultant")
-
-        assert result["status"] == "success"
-        assert result["opportunity_score"] >= 60
-        assert result["seo_score"] > 0
-        assert result["engagement_score"] > 0
-        assert result["value_score"] > 0
-        assert "suggestions" in result
-        assert result["grade"] in ["Excellent", "Good", "Needs Improvement"]
-
-    def test_analyze_low_quality_content(self):
-        """Test analysis of basic content without optimization."""
-        # Need at least 100 chars for analysis
-        content = "This is a short post about AI. " * 5  # Make it long enough
-        result = analyze_content_for_opportunities(content, target_role="AI Consultant")
-
-        assert result["status"] == "success"
-        assert result["opportunity_score"] < 60
-        assert len(result["suggestions"]) > 0
-
-    def test_analyze_with_seo_keywords(self):
-        """Test that SEO keywords improve score."""
-        content_with_seo = (
-            """
-        AI Engineer specializing in Machine Learning, Deep Learning, PyTorch, and TensorFlow.
-        ML expert in neural networks and Python development.
-        """
-            * 2
-        )  # Make it longer
-        result = analyze_content_for_opportunities(content_with_seo, target_role="AI Engineer")
-
-        assert result["status"] == "success"
-        assert result["seo_score"] > 50
-
-    def test_analyze_with_engagement_hooks(self):
-        """Test that engagement hooks improve score."""
-        content_with_hooks = (
-            """
-        Let's discuss AI solutions. What's your experience with ML?
-        Connect with me to share your thoughts. Have you tried this approach?
-        Follow for more insights. DM me to collaborate.
-        """
-            * 2
-        )
-        result = analyze_content_for_opportunities(content_with_hooks)
-
-        assert result["status"] == "success"
-        assert result["engagement_score"] > 50
-
-    def test_analyze_with_business_value(self):
-        """Test that business value language improves score."""
-        content_with_value = (
-            """
-        Our production ML solution delivered significant ROI through optimized scale.
-        The business impact was measurable with improved results across all metrics.
-        This solution addresses key challenges in production systems.
-        """
-            * 2
-        )
-        result = analyze_content_for_opportunities(content_with_value)
-
-        assert result["status"] == "success"
-        assert result["value_score"] > 50
-
-    def test_analyze_too_short(self):
-        """Test error handling for too-short content."""
-        result = analyze_content_for_opportunities("short")
-
-        assert result["status"] == "error"
-        assert "too short" in result["error_message"].lower()
-
-    def test_analyze_empty_content(self):
-        """Test error handling for empty content."""
-        result = analyze_content_for_opportunities("")
-
-        assert result["status"] == "error"
-
-
-class TestToolsIntegration:
-    """Integration tests for tools working together."""
-
-    def test_paper_search_to_citations(self):
-        """Test workflow: search papers -> generate citations."""
-        # Search papers
-        papers_result = search_papers("transformer models", max_results=2)
-        assert papers_result["status"] == "success"
-
-        # Convert to citation format
-        if papers_result["papers"]:
-            sources = [
+SAMPLE_ARXIV_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2604.05018v1</id>
+    <published>2026-04-06T12:00:00Z</published>
+    <title>PaperOrchestra: A Multi-Agent Framework for Automated AI Research Paper Writing</title>
+    <summary>We introduce PaperOrchestra, a multi-agent framework that transforms unstructured pre-writing materials into submission-ready LaTeX manuscripts with verified Semantic Scholar citations and automated plotting.</summary>
+    <author><name>Yiwen Song</name></author>
+    <author><name>Jinsung Yoon</name></author>
+  </entry>
+</feed>
+"""
+
+
+class TestSemanticScholarTools:
+    """Tests for Semantic Scholar search and citation verification."""
+
+    @patch("src.tools.requests.get")
+    def test_search_semantic_scholar_success(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [
                 {
-                    "title": paper["title"],
-                    "authors": paper["authors"],
-                    "link": paper["link"],
-                    "year": "2024",
+                    "title": "PaperOrchestra: Automated AI Research Paper Writing",
+                    "authors": [{"name": "Yiwen Song"}, {"name": "Jinsung Yoon"}],
+                    "year": 2026,
+                    "venue": "arXiv",
+                    "citationCount": 42,
+                    "abstract": "Multi-agent framework for scientific manuscripts.",
+                    "url": "https://www.semanticscholar.org/paper/abc123",
+                    "externalIds": {"ArXiv": "2604.05018", "DOI": "10.1234/example"},
                 }
-                for paper in papers_result["papers"]
             ]
+        }
+        mock_get.return_value = mock_resp
 
-            # Generate citations
-            citations_result = generate_citations(sources, "apa")
-            assert citations_result["status"] == "success"
-            assert len(citations_result["citations"]) == len(sources)
+        result = search_semantic_scholar("PaperOrchestra", max_results=3, year_from=2025)
+        assert result["status"] == "success"
+        assert result["count"] == 1
+        paper = result["papers"][0]
+        assert paper["year"] == 2026
+        assert paper["citation_count"] == 42
+        assert paper["arxiv_id"] == "2604.05018"
+        assert "@misc{" in paper["bibtex"] or "@inproceedings{" in paper["bibtex"]
 
-    def test_content_formatting_to_analysis(self):
-        """Test workflow: format content -> analyze for opportunities."""
-        # Format content
-        raw_content = "AI and Machine Learning innovations for business solutions."
-        format_result = format_for_platform(raw_content, "linkedin", "AI")
-        assert format_result["status"] == "success"
+    def test_search_semantic_scholar_empty_query(self):
+        result = search_semantic_scholar("   ")
+        assert result["status"] == "error"
 
-        # Analyze formatted content
-        analysis_result = analyze_content_for_opportunities(
-            format_result["formatted_content"], target_role="AI Consultant"
+    @patch("src.tools.search_semantic_scholar")
+    def test_verify_citation_semantic_scholar_match(self, mock_search):
+        mock_search.return_value = {
+            "status": "success",
+            "papers": [
+                {
+                    "title": "Attention Is All You Need",
+                    "authors": ["Ashish Vaswani"],
+                    "year": 2017,
+                }
+            ],
+        }
+        res = verify_citation_semantic_scholar("Attention Is All You Need")
+        assert res["status"] == "success"
+        assert res["verified"] is True
+        assert res["similarity"] >= 0.95
+
+    @patch("src.tools.search_semantic_scholar")
+    def test_verify_citation_semantic_scholar_mismatch(self, mock_search):
+        mock_search.return_value = {
+            "status": "success",
+            "papers": [
+                {"title": "Completely Unrelated Biology Study", "authors": ["X"], "year": 2020}
+            ],
+        }
+        res = verify_citation_semantic_scholar("Frugal Ad Fraud Multi-Agent Cascade")
+        assert res["status"] == "success"
+        assert res["verified"] is False
+
+
+class TestArxivTools:
+    """Tests for relevance-sorted arXiv search."""
+
+    @patch("src.tools.requests.get")
+    def test_search_arxiv_papers_parses_year_and_full_abstract(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.content = SAMPLE_ARXIV_XML
+        mock_get.return_value = mock_resp
+
+        res = search_arxiv_papers("PaperOrchestra", max_results=2)
+        assert res["status"] == "success"
+        assert res["count"] == 1
+        paper = res["papers"][0]
+        assert paper["year"] == 2026
+        assert paper["arxiv_id"] == "2604.05018v1"
+        assert "Semantic Scholar" in paper["abstract"]
+        assert "sortBy" in mock_get.call_args.kwargs["params"]
+        assert mock_get.call_args.kwargs["params"]["sortBy"] == "relevance"
+
+
+class TestBibTeXGeneration:
+    """Tests for BibTeX bibliography builder."""
+
+    def test_generate_bibtex_deduplicates_entries(self):
+        papers = [
+            {
+                "title": "Hybrid MFA Detection",
+                "authors": ["Christophe Bourgoin"],
+                "year": 2026,
+                "venue": "ICLR",
+                "url": "https://example.org/mfa",
+            },
+            {
+                "title": "Hybrid MFA Detection",
+                "authors": ["Christophe Bourgoin"],
+                "year": 2026,
+            },
+        ]
+        res = generate_bibtex(papers)
+        assert res["status"] == "success"
+        assert res["count"] == 1
+        assert "@inproceedings{bourgoin2026hybrid," in res["bibtex"]
+        assert "year = {2026}" in res["bibtex"]
+
+    def test_generate_bibtex_empty_error(self):
+        assert generate_bibtex([])["status"] == "error"
+
+
+class TestDeterministicLinter:
+    """Tests for the anti-AI-slop & platform format deterministic gate."""
+
+    def test_clean_bundle_passes(self):
+        linkedin = (
+            "Modérer 15M de pages par semaine avec un LLM frontier coûte trop cher.\n\n"
+            "Dans notre benchmark interne, une cascade hybride règles statistiques + XGBoost "
+            "ramène le coût unitaire sous 0,001€ par page tout en gardant 94,7% de rappel MFA.\n\n"
+            "Comment arbitrez-vous coût d'inférence et précision dans vos pipelines IA en prod ?\n\n"
+            "#AIEngineering #AdTech #MLOps"
         )
-        assert analysis_result["status"] == "success"
+        tweets = [
+            "1/ Running frontier LLMs on 15M web pages/week burns budget fast. A hybrid cascade hits 94.7% MFA recall at <0.001 EUR/page.",
+            "2/ Rules filter obvious noise in 12ms; XGBoost scores ambiguous domains; the LLM agent only audits the top 3% edge cases.",
+        ]
+        yt_script = "[00:00] Hook: Here is why frontier-only LLM moderation breaks unit economics. [VISUAL #1: Benchmark Chart]"
 
-    def test_seo_keywords_to_engagement_hooks(self):
-        """Test workflow: generate SEO keywords -> create engagement hooks."""
-        # Generate keywords
-        seo_result = generate_seo_keywords("Deep Learning", role="ML Engineer")
-        assert seo_result["status"] == "success"
-
-        # Create hooks
-        hooks_result = create_engagement_hooks("Deep Learning", goal="opportunities")
-        assert hooks_result["status"] == "success"
-
-        # Both should be relevant to the topic
-        combined_text = (
-            " ".join(seo_result["technical_keywords"])
-            + " "
-            + " ".join(hooks_result["opening_hooks"])
+        res = validate_deliverables_deterministic(
+            linkedin_post=linkedin,
+            x_tweets=tweets,
+            youtube_script=yt_script,
         )
-        assert "learning" in combined_text.lower()
+        assert res["passed"] is True
+        assert res["violations"] == []
+
+    def test_catches_broken_linkedin_markdown_placeholders_and_cliches(self):
+        bad_linkedin = (
+            "🚀 **Navigating the Next Wave** of AI! This is a game-changing moment.\n"
+            "In my work on [mention a relevant project], we saw great results. TODO add link."
+        )
+        res = validate_deliverables_deterministic(linkedin_post=bad_linkedin)
+        assert res["passed"] is False
+        joined = " ".join(res["violations"])
+        assert "Markdown bold" in joined
+        assert "placeholder" in joined.lower()
+        assert "TODO" in joined
+        assert "cliché" in joined.lower()
+
+    def test_catches_tweet_over_280_chars(self):
+        long_tweet = "1/ " + ("x" * 290)
+        res = validate_deliverables_deterministic(x_tweets=[long_tweet])
+        assert res["passed"] is False
+        assert res["stats"]["x_over_280_count"] == 1
+
+    def test_youtube_visual_cues_are_not_flagged_as_placeholders(self):
+        yt = "[VISUAL #1: Architecture Diagram] [B-ROLL: Terminal Demo] Clean technical script."
+        res = validate_deliverables_deterministic(youtube_script=yt)
+        assert res["passed"] is True
+
+
+class TestExitLoopTool:
+    """Tests for ADK LoopAgent escalation tool."""
+
+    def test_exit_loop_sets_escalate(self):
+        ctx = SimpleNamespace(actions=SimpleNamespace(escalate=False))
+        res = exit_loop(ctx)
+        assert res["status"] == "success"
+        assert ctx.actions.escalate is True

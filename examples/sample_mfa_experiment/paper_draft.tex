@@ -1,0 +1,24 @@
+\documentclass{article}
+\title{Frugal Hybrid Agentic Detection of Made-For-Advertising Domains at Scale}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Programmatic digital advertising loses billions annually to Made-For-Advertising (MFA) websites designed solely to arbitrage ad impressions. While frontier Large Language Models can classify suspicious pages accurately, their inference cost is prohibitive at web scale (>15M pages per week). We evaluate a hybrid cascade combining lightweight statistical/econometric rules, gradient-boosted trees, and targeted agentic LLM verification, achieving +85\% coverage improvement while keeping unit inference cost below 0.001 EUR per page.
+\end{abstract}
+
+\section{Experimental Setup}
+We benchmark three architectures on 100,000 web domains labeled under GARM and MFA taxonomies: (1) Rules-Only Baseline, (2) Frontier LLM Only, and (3) Hybrid Cascade (Statistical Rules + XGBoost + Selective Agentic LLM).
+
+\section{Results}
+\begin{tabular}{lccc}
+\toprule
+Architecture & MFA Recall (\%) & Cost per 1k Pages (EUR) & P95 Latency (ms) \\
+\midrule
+Statistical Rules Only & 51.2 & 0.05 & 12 \\
+Frontier LLM Only & 93.4 & 14.80 & 1850 \\
+Hybrid Cascade (Ours) & 94.7 & 0.72 & 68 \\
+\bottomrule
+\end{tabular}
+
+\end{document}

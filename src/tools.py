@@ -1,811 +1,511 @@
-"""Custom tools for the content generation agent system."""
+"""Grounded research, citation verification, deterministic linting, and loop-control tools."""
 
-import xml.etree.ElementTree as ET
+from __future__ import annotations
+
+import os
+import re
+import time
+from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any
 
+import defusedxml.ElementTree as DefusedET
 import requests
-from duckduckgo_search import DDGS
+
+from .knowledge_base import load_banned_phrases
+
+try:
+    from ddgs import DDGS
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS  # type: ignore[no-redef]
+    except ImportError:  # pragma: no cover
+        DDGS = None  # type: ignore[assignment]
+
+try:
+    from google.adk.tools.tool_context import ToolContext
+except ImportError:  # pragma: no cover
+    ToolContext = Any  # type: ignore[misc,assignment]
 
 
-def search_papers(topic: str, max_results: int = 5) -> dict[str, Any]:
-    """Search for academic papers and research articles on a given topic.
+SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+ARXIV_API_URL = "https://export.arxiv.org/api/query"
 
-    This tool searches for recent academic papers, research articles, and
-    scientific publications related to the specified topic. It provides
-    summaries and links to help build credible, research-backed content.
+
+def _make_bibtex_key(authors: list[str], year: int | str | None, title: str) -> str:
+    """Create a deterministic BibTeX citation key (e.g. xiao2025optimizing)."""
+    first_author = authors[0] if authors else "unknown"
+    last_name = re.sub(r"[^a-z]", "", first_author.split()[-1].lower()) or "author"
+    year_str = str(year) if year else "nd"
+    first_word = next(
+        (
+            w
+            for w in re.findall(r"[a-z]{4,}", title.lower())
+            if w not in {"with", "from", "that", "this"}
+        ),
+        "paper",
+    )
+    return f"{last_name}{year_str}{first_word}"
+
+
+def _format_single_bibtex(paper: dict[str, Any]) -> str:
+    """Format a paper dictionary as a valid BibTeX entry."""
+    authors = paper.get("authors", [])
+    if isinstance(authors, str):
+        authors = [a.strip() for a in authors.split(",") if a.strip()]
+    title = str(paper.get("title", "Untitled")).replace("{", "").replace("}", "")
+    year = paper.get("year") or ""
+    venue = str(paper.get("venue", "")).strip()
+    url = str(paper.get("url") or paper.get("link") or "").strip()
+    arxiv_id = str(paper.get("arxiv_id", "")).strip()
+    doi = str(paper.get("doi", "")).strip()
+
+    key = _make_bibtex_key(authors, year, title)
+    author_field = " and ".join(authors) if authors else "Unknown"
+    entry_type = "inproceedings" if venue and "arxiv" not in venue.lower() else "misc"
+
+    lines = [
+        f"@{entry_type}{{{key},",
+        f"  title = {{{title}}},",
+        f"  author = {{{author_field}}},",
+    ]
+    if year:
+        lines.append(f"  year = {{{year}}},")
+    if venue and entry_type == "inproceedings":
+        lines.append(f"  booktitle = {{{venue}}},")
+    if arxiv_id:
+        lines.append(f"  eprint = {{{arxiv_id}}},")
+        lines.append("  archivePrefix = {arXiv},")
+    if doi:
+        lines.append(f"  doi = {{{doi}}},")
+    if url:
+        lines.append(f"  url = {{{url}}},")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def search_semantic_scholar(
+    query: str,
+    max_results: int = 5,
+    year_from: int | None = None,
+) -> dict[str, Any]:
+    """Search verified academic papers via the Semantic Scholar Graph API.
+
+    Returns full abstracts, publication years, venues, citation counts, URLs,
+    and valid BibTeX entries (PaperOrchestra literature grounding pattern).
 
     Args:
-        topic: The research topic or subject to search for (e.g., "machine learning interpretability")
-        max_results: Maximum number of papers to return (default: 5)
+        query: Academic search query (e.g., "ad fraud detection made for advertising").
+        max_results: Maximum number of papers to return (1-20, default: 5).
+        year_from: Optional minimum publication year filter (e.g., 2023).
 
     Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - papers: List of paper dictionaries with title, authors, summary, link
-        - error_message: Error description if status is "error"
+        Dictionary with status, papers list, and count.
     """
-    try:
-        # Use arXiv API for academic papers
-        # Format: http://export.arxiv.org/api/query?search_query=all:{topic}&max_results={max_results}
-        base_url = "http://export.arxiv.org/api/query"
-        params = {
-            "search_query": f"all:{topic}",
-            "max_results": max_results,
-            "sortBy": "submittedDate",
-            "sortOrder": "descending",
+    if not query or not query.strip():
+        return {"status": "error", "error_message": "Search query cannot be empty."}
+
+    max_results = max(1, min(int(max_results), 20))
+    params: dict[str, Any] = {
+        "query": query.strip(),
+        "limit": max_results,
+        "fields": "title,authors,year,venue,citationCount,abstract,url,externalIds",
+    }
+    if year_from:
+        params["year"] = f"{year_from}-"
+
+    headers = {"User-Agent": "agentic-content-generation/2.0"}
+    api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    if api_key and not api_key.startswith("your_"):
+        headers["x-api-key"] = api_key
+
+    last_error = ""
+    for attempt in range(2):
+        try:
+            response = requests.get(
+                SEMANTIC_SCHOLAR_SEARCH_URL,
+                params=params,
+                headers=headers,
+                timeout=15,
+            )
+            if response.status_code == 429 and attempt == 0:
+                time.sleep(1.5)
+                continue
+            response.raise_for_status()
+            payload = response.json()
+
+            papers: list[dict[str, Any]] = []
+            for item in payload.get("data", []):
+                authors = [
+                    a.get("name", "").strip() for a in item.get("authors", [])[:6] if a.get("name")
+                ]
+                ext_ids = item.get("externalIds") or {}
+                abstract = (item.get("abstract") or "").strip()
+                if len(abstract) > 1500:
+                    abstract = abstract[:1500] + "..."
+
+                paper_dict: dict[str, Any] = {
+                    "title": (item.get("title") or "Untitled").strip(),
+                    "authors": authors,
+                    "year": item.get("year"),
+                    "venue": (item.get("venue") or "").strip(),
+                    "citation_count": item.get("citationCount"),
+                    "abstract": abstract or "No abstract available.",
+                    "url": item.get("url") or "",
+                    "arxiv_id": ext_ids.get("ArXiv", ""),
+                    "doi": ext_ids.get("DOI", ""),
+                    "source": "semantic_scholar",
+                }
+                paper_dict["bibtex"] = _format_single_bibtex(paper_dict)
+                papers.append(paper_dict)
+
+            return {"status": "success", "papers": papers, "count": len(papers)}
+        except requests.RequestException as exc:
+            last_error = str(exc)
+        except Exception as exc:
+            last_error = str(exc)
+            break
+
+    return {
+        "status": "error",
+        "error_message": f"Semantic Scholar search failed: {last_error}",
+    }
+
+
+def verify_citation_semantic_scholar(title: str) -> dict[str, Any]:
+    """Verify that a cited paper title exists on Semantic Scholar and return canonical metadata.
+
+    Implements PaperOrchestra's sequential citation verification step to prevent
+    hallucinated references and missing years.
+
+    Args:
+        title: Exact or near-exact title of the paper to verify.
+
+    Returns:
+        Dictionary with status, verified boolean, similarity score, and canonical paper metadata.
+    """
+    if not title or len(title.strip()) < 5:
+        return {"status": "error", "verified": False, "error_message": "Title is too short."}
+
+    result = search_semantic_scholar(title.strip(), max_results=3)
+    if result.get("status") != "success":
+        return {
+            "status": "error",
+            "verified": False,
+            "error_message": result.get("error_message", "Verification lookup failed."),
         }
 
-        response = requests.get(base_url, params=params, timeout=10)
+    papers = result.get("papers", [])
+    if not papers:
+        return {"status": "success", "verified": False, "similarity": 0.0, "paper": None}
+
+    target_norm = re.sub(r"[^a-z0-9 ]", "", title.lower()).strip()
+    best_paper = None
+    best_score = 0.0
+    for paper in papers:
+        cand_norm = re.sub(r"[^a-z0-9 ]", "", paper["title"].lower()).strip()
+        score = SequenceMatcher(None, target_norm, cand_norm).ratio()
+        if score > best_score:
+            best_score = score
+            best_paper = paper
+
+    return {
+        "status": "success",
+        "verified": best_score >= 0.72,
+        "similarity": round(best_score, 3),
+        "paper": best_paper,
+    }
+
+
+def search_arxiv_papers(
+    query: str,
+    max_results: int = 5,
+    sort_by: str = "relevance",
+) -> dict[str, Any]:
+    """Search arXiv academic papers sorted by relevance (not raw submission date).
+
+    Returns full abstracts (up to 1,500 chars), real publication years, arXiv IDs,
+    and BibTeX entries.
+
+    Args:
+        query: Research query (e.g., "multi-agent LLM evaluation cost latency").
+        max_results: Maximum number of papers to return (default: 5).
+        sort_by: arXiv sort criterion ("relevance", "lastUpdatedDate", or "submittedDate").
+
+    Returns:
+        Dictionary with status, papers list, and count.
+    """
+    if not query or not query.strip():
+        return {"status": "error", "error_message": "arXiv query cannot be empty."}
+
+    valid_sorts = {"relevance", "lastUpdatedDate", "submittedDate"}
+    sort_criterion = sort_by if sort_by in valid_sorts else "relevance"
+    max_results = max(1, min(int(max_results), 20))
+
+    try:
+        params = {
+            "search_query": f"all:{query.strip()}",
+            "max_results": max_results,
+            "sortBy": sort_criterion,
+            "sortOrder": "descending",
+        }
+        response = requests.get(ARXIV_API_URL, params=params, timeout=15)
         response.raise_for_status()
 
-        # Parse XML response using proper XML parser
-        # Design decision: We use ElementTree instead of string parsing for robustness
-        # and proper handling of XML namespaces, encoding, and malformed entries.
         try:
-            root = ET.fromstring(response.content)
-        except ET.ParseError as e:
-            return {
-                "status": "error",
-                "error_message": f"Failed to parse arXiv XML response: {str(e)}",
+            root = DefusedET.fromstring(response.content)
+        except Exception as exc:
+            return {"status": "error", "error_message": f"Failed to parse arXiv XML: {exc}"}
+
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        papers: list[dict[str, Any]] = []
+        for entry in root.findall("atom:entry", ns)[:max_results]:
+            title_el = entry.find("atom:title", ns)
+            title = (
+                " ".join(title_el.text.split())
+                if title_el is not None and title_el.text
+                else "Untitled"
+            )
+
+            summary_el = entry.find("atom:summary", ns)
+            abstract = (
+                " ".join(summary_el.text.split())
+                if summary_el is not None and summary_el.text
+                else "No abstract available."
+            )
+            if len(abstract) > 1500:
+                abstract = abstract[:1500] + "..."
+
+            id_el = entry.find("atom:id", ns)
+            link = id_el.text.strip() if id_el is not None and id_el.text else ""
+            arxiv_id = link.rsplit("/", 1)[-1] if "/abs/" in link else ""
+
+            pub_el = entry.find("atom:published", ns)
+            year: int | None = None
+            if pub_el is not None and pub_el.text and len(pub_el.text) >= 4:
+                try:
+                    year = int(pub_el.text[:4])
+                except ValueError:
+                    year = None
+
+            authors: list[str] = []
+            for author_el in entry.findall("atom:author", ns)[:6]:
+                name_el = author_el.find("atom:name", ns)
+                if name_el is not None and name_el.text:
+                    authors.append(name_el.text.strip())
+
+            paper_dict: dict[str, Any] = {
+                "title": title,
+                "authors": authors,
+                "year": year,
+                "venue": "arXiv",
+                "citation_count": None,
+                "abstract": abstract,
+                "url": link,
+                "arxiv_id": arxiv_id,
+                "doi": "",
+                "source": "arxiv",
             }
-
-        # arXiv API uses Atom namespace
-        namespace = {"atom": "http://www.w3.org/2005/Atom"}
-
-        # Extract papers from XML entries
-        papers = []
-        entries = root.findall("atom:entry", namespace)
-
-        for entry in entries[:max_results]:
-            try:
-                # Extract title (remove extra whitespace and newlines)
-                title_elem = entry.find("atom:title", namespace)
-                title = (
-                    " ".join(title_elem.text.strip().split())
-                    if title_elem is not None
-                    else "Untitled"
-                )
-
-                # Extract summary (limit to 300 chars for readability)
-                summary_elem = entry.find("atom:summary", namespace)
-                if summary_elem is not None:
-                    summary = " ".join(summary_elem.text.strip().split())
-                    summary = summary[:300] + ("..." if len(summary) > 300 else "")
-                else:
-                    summary = "No summary available"
-
-                # Extract paper ID/link
-                id_elem = entry.find("atom:id", namespace)
-                link = id_elem.text.strip() if id_elem is not None else ""
-
-                # Extract authors (first 3 authors for brevity)
-                authors = []
-                author_elems = entry.findall("atom:author", namespace)
-                for author_elem in author_elems[:3]:
-                    name_elem = author_elem.find("atom:name", namespace)
-                    if name_elem is not None:
-                        authors.append(name_elem.text.strip())
-
-                papers.append(
-                    {
-                        "title": title,
-                        "authors": ", ".join(authors) if authors else "Unknown",
-                        "summary": summary,
-                        "link": link,
-                    }
-                )
-            except Exception:
-                # Skip malformed entries but continue processing
-                continue
+            paper_dict["bibtex"] = _format_single_bibtex(paper_dict)
+            papers.append(paper_dict)
 
         if not papers:
-            return {"status": "error", "error_message": f"No papers found for topic: {topic}"}
+            return {"status": "error", "error_message": f"No arXiv papers found for: {query}"}
 
         return {"status": "success", "papers": papers, "count": len(papers)}
-
-    except requests.RequestException as e:
-        return {"status": "error", "error_message": f"Failed to search papers: {str(e)}"}
-    except Exception as e:
-        return {"status": "error", "error_message": f"Unexpected error: {str(e)}"}
+    except requests.RequestException as exc:
+        return {"status": "error", "error_message": f"arXiv request failed: {exc}"}
+    except Exception as exc:
+        return {"status": "error", "error_message": f"Unexpected arXiv error: {exc}"}
 
 
 def search_web(query: str, max_results: int = 5) -> dict[str, Any]:
-    """Search the web for information using DuckDuckGo.
+    """Search the web via DuckDuckGo for industry context, benchmarks, and real-world news."""
+    if not query or not query.strip():
+        return {"status": "error", "error_message": "Web query cannot be empty."}
+    if DDGS is None:
+        return {
+            "status": "error",
+            "error_message": "duckduckgo-search / ddgs package not installed.",
+        }
 
-    Use this tool to find:
-    - Recent news and industry trends
-    - Blog posts and technical articles
-    - Company information and market data
-    - Real-world examples and case studies
-
-    Args:
-        query: The search query
-        max_results: Maximum number of results to return (default: 5)
-
-    Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - results: List of search results (title, link, snippet)
-        - error_message: Error description if status is "error"
-    """
     try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=max_results))
-
-        if not results:
-            return {"status": "success", "results": [], "count": 0}
-
-        formatted_results = []
-        for r in results:
-            formatted_results.append(
-                {
-                    "title": r.get("title", ""),
-                    "link": r.get("href", ""),
-                    "snippet": r.get("body", ""),
-                }
-            )
-
-        return {"status": "success", "results": formatted_results, "count": len(formatted_results)}
-
-    except Exception as e:
-        return {"status": "error", "error_message": f"Web search error: {str(e)}"}
-
-
-def format_for_platform(content: str, platform: str, topic: str = "") -> dict[str, Any]:
-    """Format content appropriately for different social media platforms.
-
-    Adjusts content length, structure, and style based on platform requirements:
-    - Blog: Long-form, structured with headings (1000-2000 words)
-    - LinkedIn: Professional, medium-length with key takeaways (300-800 words)
-    - Twitter: Concise thread format, engaging hooks (280 chars per tweet)
-
-    Args:
-        content: The raw content to format
-        platform: Target platform ("blog", "linkedin", or "twitter")
-        topic: Optional topic for context (used for hashtags, etc.)
-
-    Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - formatted_content: Platform-optimized content
-        - metadata: Platform-specific metadata (hashtags, structure, etc.)
-        - error_message: Error description if status is "error"
-    """
-    try:
-        platform = platform.lower()
-
-        if platform not in ["blog", "linkedin", "twitter"]:
-            return {
-                "status": "error",
-                "error_message": f"Unsupported platform: {platform}. Use 'blog', 'linkedin', or 'twitter'.",
+            results = list(ddgs.text(query.strip(), max_results=max_results))
+        formatted = [
+            {
+                "title": r.get("title", ""),
+                "link": r.get("href", ""),
+                "snippet": r.get("body", ""),
             }
-
-        metadata = {}
-
-        if platform == "blog":
-            # Blog: Add structure with markdown
-            metadata = {
-                "format": "markdown",
-                "target_length": "1000-2000 words",
-                "structure": "Title → Introduction → Main sections with H2/H3 → Conclusion → References",
-            }
-            formatted = f"""# {topic if topic else "Article Title"}
-
-{content}
-
-## References
-[Add citations here]
-"""
-
-        elif platform == "linkedin":
-            # LinkedIn: Professional tone with emojis and key takeaways
-            metadata = {
-                "format": "plain text with limited formatting",
-                "target_length": "300-800 words",
-                "best_practices": "Start with hook, use line breaks, end with call-to-action",
-            }
-
-            # Add structure
-            formatted = f"""🔬 {topic if topic else "Professional Insight"}
-
-{content}
-
-💡 Key Takeaways:
-[Summarize 3-5 bullet points]
-
-What are your thoughts? Share in the comments below! 👇
-
-#Research #Science #Innovation
-"""
-
-        elif platform == "twitter":
-            # Twitter: Break into thread
-            metadata = {
-                "format": "thread (multiple tweets)",
-                "target_length": "280 characters per tweet",
-                "best_practices": "Number tweets (1/n), use hooks, add relevant hashtags",
-            }
-
-            # Basic thread structure
-            formatted = f"""🧵 Thread: {topic if topic else "Key Insights"}
-
-1/🧵 {content[:250]}...
-
-[Continue thread - AI will expand this into full thread]
-
-#Research #Science
-"""
-
-        return {
-            "status": "success",
-            "formatted_content": formatted,
-            "platform": platform,
-            "metadata": metadata,
-        }
-
-    except Exception as e:
-        return {"status": "error", "error_message": f"Formatting error: {str(e)}"}
-
-
-def generate_citations(sources: list[dict[str, str]], style: str = "apa") -> dict[str, Any]:
-    """Generate properly formatted citations from source information.
-
-    Creates academic-style citations from paper/article metadata to ensure
-    content credibility and proper attribution.
-
-    Args:
-        sources: List of source dictionaries with keys: title, authors, link, year (optional)
-        style: Citation style ("apa", "mla", or "chicago") - default is "apa"
-
-    Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - citations: List of formatted citation strings
-        - inline_format: Example of how to cite inline
-        - error_message: Error description if status is "error"
-    """
-    try:
-        if not sources:
-            return {"status": "error", "error_message": "No sources provided for citation"}
-
-        style = style.lower()
-        if style not in ["apa", "mla", "chicago"]:
-            style = "apa"  # Default to APA
-
-        citations = []
-
-        for i, source in enumerate(sources, 1):
-            title = source.get("title", "Untitled")
-            authors = source.get("authors", "Unknown")
-            link = source.get("link", "")
-            year = source.get("year", "n.d.")
-
-            if style == "apa":
-                # APA: Authors (Year). Title. Retrieved from URL
-                citation = f"{authors} ({year}). {title}. {link}"
-            elif style == "mla":
-                # MLA: Authors. "Title." Web. URL
-                citation = f'{authors}. "{title}." Web. {link}'
-            else:  # chicago
-                # Chicago: Authors. "Title." Accessed URL
-                citation = f'{authors}. "{title}." {link}'
-
-            citations.append(f"[{i}] {citation}")
-
-        inline_format = {"apa": "(Author, Year)", "mla": "(Author)", "chicago": "(Author Year)"}
-
-        return {
-            "status": "success",
-            "citations": citations,
-            "style": style,
-            "inline_format": inline_format.get(style, "(Author, Year)"),
-            "count": len(citations),
-        }
-
-    except Exception as e:
-        return {"status": "error", "error_message": f"Citation generation error: {str(e)}"}
-
-
-def extract_key_findings(research_text: str, max_findings: int = 5) -> dict[str, Any]:
-    """Extract key findings and insights from research text.
-
-    Parses research summaries to identify the most important findings,
-    conclusions, and actionable insights for content creation.
-
-    Args:
-        research_text: Raw research text to analyze
-        max_findings: Maximum number of key findings to extract (default: 5)
-
-    Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - findings: List of key finding strings
-        - summary: Brief overall summary
-        - error_message: Error description if status is "error"
-    """
-    try:
-        if not research_text or len(research_text.strip()) < 50:
-            return {"status": "error", "error_message": "Insufficient research text provided"}
-
-        # Simple keyword-based extraction (in production, use NLP/LLM)
-        sentences = research_text.replace("\n", " ").split(". ")
-
-        # Look for sentences with key indicator words
-        indicators = [
-            "found",
-            "discovered",
-            "showed",
-            "demonstrated",
-            "revealed",
-            "concluded",
-            "suggests",
-            "indicates",
-            "proves",
-            "confirms",
-            "important",
-            "significant",
-            "key",
-            "main",
-            "primary",
+            for r in results
         ]
-
-        findings = []
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if any(indicator in sentence.lower() for indicator in indicators):
-                findings.append(sentence if sentence.endswith(".") else sentence + ".")
-                if len(findings) >= max_findings:
-                    break
-
-        # If not enough findings, take first few substantial sentences
-        if len(findings) < max_findings:
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if len(sentence) > 30 and sentence not in findings:
-                    findings.append(sentence if sentence.endswith(".") else sentence + ".")
-                    if len(findings) >= max_findings:
-                        break
-
-        summary = f"Analysis of research text identified {len(findings)} key findings and insights."
-
-        return {
-            "status": "success",
-            "findings": findings[:max_findings],
-            "summary": summary,
-            "count": len(findings[:max_findings]),
-        }
-
-    except Exception as e:
-        return {"status": "error", "error_message": f"Key finding extraction error: {str(e)}"}
+        return {"status": "success", "results": formatted, "count": len(formatted)}
+    except Exception as exc:
+        return {"status": "error", "error_message": f"Web search error: {exc}"}
 
 
-def search_industry_trends(
-    field: str, region: str = "global", max_results: int = 5
+def search_industry_context(
+    topic: str,
+    region: str = "Europe",
+    max_results: int = 5,
 ) -> dict[str, Any]:
-    """Search for industry trends, job market demands, and hiring patterns in AI/ML.
+    """Search current-year industry news and market adoption signals for a topic.
 
-    Identifies what companies are looking for, hot skills in demand, and
-    industry pain points that professionals can address. Useful for aligning
-    content with market opportunities.
-
-    Args:
-        field: The AI/ML field to analyze (e.g., "Machine Learning", "NLP", "Computer Vision")
-        region: Geographic region for job market analysis (default: "global")
-        max_results: Maximum number of trends to return (default: 5)
-
-    Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - trends: List of current industry trends and demands
-        - hot_skills: Technologies/frameworks in high demand
-        - pain_points: Common business challenges to address
-        - error_message: Error description if status is "error"
+    Uses the dynamic current year (never hardcoded) to ground B2B positioning.
     """
-    try:
-        # Use search_web to find real trends
-        search_query = f"latest trends in {field} {region} {2024}"
-
-        # We'll use the newly created search_web function
-        # Note: In a real circular dependency scenario, we might need to handle imports differently,
-        # but here they are in the same file.
-        search_results = search_web(search_query, max_results=max_results)
-
-        if search_results.get("status") == "error":
-            return search_results
-
-        results = search_results.get("results", [])
-
-        trends = []
-        for r in results:
-            trends.append(f"{r['title']}: {r['snippet']}")
-
-        if not trends:
-            # Fallback if search fails to return good results
-            trends = [
-                f"Growing demand for {field} expertise in {region}",
-                f"Companies seeking production-ready {field} solutions",
-                "Emphasis on practical implementation over pure research",
-            ]
-
-        # Basic skill mapping is still useful as a baseline
-        skill_mapping = {
-            "machine learning": ["PyTorch", "TensorFlow", "Scikit-learn", "MLflow", "Kubeflow"],
-            "nlp": ["Transformers", "LangChain", "OpenAI API", "HuggingFace", "spaCy"],
-            "computer vision": ["OpenCV", "YOLO", "SAM", "Detectron2", "PIL"],
-            "llm": ["LangChain", "LlamaIndex", "Vector Databases", "Prompt Engineering", "RAG"],
-            "mlops": ["MLflow", "Kubeflow", "Docker", "Kubernetes", "AWS SageMaker"],
-        }
-
-        field_lower = field.lower()
-        hot_skills = []
-        for key in skill_mapping:
-            if key in field_lower:
-                hot_skills.extend(skill_mapping[key][:3])
-
-        if not hot_skills:
-            hot_skills = ["Python", "PyTorch", "Cloud Platforms", "API Development"]
-
-        pain_points = [
-            f"Difficulty finding experienced {field} professionals",
-            f"Bridging gap between research papers and production code in {field}",
-            f"Scaling {field} solutions from prototype to enterprise",
-            f"Explaining ROI of {field} investments to executives",
-            f"Maintaining and monitoring {field} systems in production",
-        ]
-
-        return {
-            "status": "success",
-            "trends": trends[:max_results],
-            "hot_skills": list(set(hot_skills)),
-            "pain_points": pain_points[:max_results],
-            "region": region,
-            "field": field,
-        }
-
-    except Exception as e:
-        return {"status": "error", "error_message": f"Industry trends search error: {str(e)}"}
+    current_year = datetime.now().year
+    query = f"{topic} industry benchmark production adoption {region} {current_year}"
+    result = search_web(query, max_results=max_results)
+    result["year"] = current_year
+    result["region"] = region
+    return result
 
 
-def generate_seo_keywords(topic: str, role: str = "AI Consultant") -> dict[str, Any]:
-    """Generate LinkedIn SEO keywords that recruiters search for.
+def generate_bibtex(papers: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compile a deduplicated BibTeX bibliography string from verified paper dicts.
 
-    Creates role-specific keywords and technology terms that improve
-    visibility in recruiter searches and LinkedIn's algorithm.
-
-    Args:
-        topic: The content topic or expertise area
-        role: Target professional role (e.g., "AI Consultant", "ML Engineer")
-
-    Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - primary_keywords: Main role-based keywords
-        - technical_keywords: Technology and framework terms
-        - action_keywords: Skill-based action verbs
-        - combined_phrases: Optimized keyword combinations
-        - error_message: Error description if status is "error"
+    Directly reusable in LaTeX manuscripts and PaperOrchestra workflows.
     """
-    try:
-        # Role-based keywords
-        role_keywords = {
-            "consultant": ["AI Consultant", "ML Consultant", "AI Strategy", "Technical Advisor"],
-            "engineer": ["ML Engineer", "AI Engineer", "Machine Learning Engineer"],
-            "specialist": ["AI Specialist", "ML Specialist", "Data Science Specialist"],
-            "expert": ["AI Expert", "ML Expert", "Subject Matter Expert"],
-            "architect": ["AI Architect", "ML Architect", "Solutions Architect"],
-        }
+    if not papers:
+        return {"status": "error", "error_message": "No papers provided for BibTeX generation."}
 
-        role_lower = role.lower()
-        primary_keywords = [role]
-        for key in role_keywords:
-            if key in role_lower:
-                primary_keywords.extend(role_keywords[key][:2])
+    entries: list[str] = []
+    seen_titles: set[str] = set()
+    for paper in papers:
+        title_key = str(paper.get("title", "")).strip().lower()
+        if not title_key or title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
+        entry = paper.get("bibtex") or _format_single_bibtex(paper)
+        entries.append(entry)
 
-        # Technical keywords based on topic
-        technical_keywords = []
-        topic_lower = topic.lower()
-
-        tech_mapping = {
-            "language": ["NLP", "LLM", "Transformers", "GPT", "BERT"],
-            "vision": ["Computer Vision", "CNN", "Object Detection", "Image Recognition"],
-            "learning": ["Deep Learning", "Neural Networks", "PyTorch", "TensorFlow"],
-            "agent": ["AI Agents", "Multi-Agent Systems", "LangChain", "Autonomous Systems"],
-            "data": ["Data Science", "Feature Engineering", "Model Training"],
-        }
-
-        for key in tech_mapping:
-            if key in topic_lower:
-                technical_keywords.extend(tech_mapping[key][:3])
-
-        if not technical_keywords:
-            technical_keywords = ["Machine Learning", "Artificial Intelligence", "Python"]
-
-        # Action keywords (skills)
-        action_keywords = [
-            "AI Development",
-            "Model Deployment",
-            "MLOps",
-            "Production ML",
-            "Algorithm Design",
-            "Technical Leadership",
-            "AI Strategy",
-        ]
-
-        # Combined optimized phrases
-        combined_phrases = [
-            f"{primary_keywords[0]} | {technical_keywords[0]}",
-            f"Expert in {technical_keywords[0]} and {technical_keywords[1] if len(technical_keywords) > 1 else 'ML'}",
-            f"{action_keywords[0]} | {action_keywords[1]}",
-        ]
-
-        return {
-            "status": "success",
-            "primary_keywords": list(set(primary_keywords))[:5],
-            "technical_keywords": list(set(technical_keywords))[:5],
-            "action_keywords": action_keywords[:5],
-            "combined_phrases": combined_phrases,
-            "total_keywords": len(set(primary_keywords + technical_keywords + action_keywords)),
-        }
-
-    except Exception as e:
-        return {"status": "error", "error_message": f"SEO keyword generation error: {str(e)}"}
+    return {
+        "status": "success",
+        "bibtex": "\n\n".join(entries),
+        "count": len(entries),
+    }
 
 
-def create_engagement_hooks(topic: str, goal: str = "opportunities") -> dict[str, Any]:
-    """Create engagement hooks that invite professional connections and opportunities.
-
-    Generates calls-to-action, questions, and portfolio mentions that
-    encourage recruiters and potential clients to connect.
-
-    Args:
-        topic: The content topic
-        goal: Content goal ("opportunities", "discussion", "credibility", "visibility")
-
-    Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - opening_hooks: Attention-grabbing opening lines
-        - closing_ctas: Strong calls-to-action
-        - discussion_questions: Questions that spark engagement
-        - portfolio_prompts: Ways to mention your work
-        - error_message: Error description if status is "error"
-    """
-    try:
-        goal = goal.lower()
-
-        # Opening hooks based on goal
-        opening_hooks = {
-            "opportunities": [
-                f"Working with companies on {topic}? Here's what I've learned...",
-                f"After implementing {topic} for multiple clients, one thing is clear:",
-                f"Most {topic} projects fail because of this one mistake:",
-            ],
-            "discussion": [
-                f"Hot take on {topic}:",
-                f"Here's what nobody tells you about {topic}:",
-                f"The {topic} landscape just shifted. Here's why it matters:",
-            ],
-            "credibility": [
-                f"Deep dive into {topic} based on hands-on experience:",
-                f"Technical breakdown of {topic} that actually works in production:",
-                f"What I learned implementing {topic} at scale:",
-            ],
-            "visibility": [
-                f"🔥 {topic} is evolving faster than ever. Here's what you need to know:",
-                f"Everyone's talking about {topic}, but here's what they're missing:",
-                f"3 things about {topic} that changed how I work:",
-            ],
-        }
-
-        # Closing CTAs based on goal
-        closing_ctas = {
-            "opportunities": [
-                "Looking to implement this in your organization? Let's connect and discuss your needs.",
-                "Need help with your {topic} project? DM me to explore collaboration.",
-                "Building something similar? I'd love to hear about your approach. Drop a comment or message me.",
-            ],
-            "discussion": [
-                "What's your take on this? Agree or disagree? Let's discuss in the comments!",
-                "Have you encountered this in your work? Share your experience below.",
-                "Curious how this applies to your use case? Let's chat!",
-            ],
-            "credibility": [
-                "Want to dive deeper into the technical details? Connect with me.",
-                "Questions about the implementation? Happy to share insights.",
-                "Follow for more technical deep-dives on {topic}.",
-            ],
-            "visibility": [
-                "🔔 Follow for more insights on {topic} and AI/ML trends.",
-                "👉 Repost if you found this valuable. Tag someone who needs to see this.",
-                "💬 What would you add to this list? Comment below!",
-            ],
-        }
-
-        # Discussion questions
-        discussion_questions = [
-            f"What's been your biggest challenge with {topic}?",
-            f"Are you seeing similar trends with {topic} in your industry?",
-            f"Which aspect of {topic} should I cover next?",
-            f"What's your hot take on the future of {topic}?",
-            f"Have you tried implementing {topic}? What were your results?",
-        ]
-
-        # Portfolio prompts
-        portfolio_prompts = [
-            f"In my recent project on {topic}, I discovered...",
-            f"While building a {topic} solution, here's what worked:",
-            f"My open-source work on {topic} taught me...",
-            f"Check out my GitHub for {topic} implementations that...",
-            f"Drawing from my Kaggle competition on {topic}...",
-        ]
-
-        return {
-            "status": "success",
-            "opening_hooks": opening_hooks.get(goal, opening_hooks["credibility"])[:3],
-            "closing_ctas": [
-                cta.replace("{topic}", topic)
-                for cta in closing_ctas.get(goal, closing_ctas["opportunities"])[:3]
-            ],
-            "discussion_questions": discussion_questions[:3],
-            "portfolio_prompts": portfolio_prompts[:3],
-            "goal": goal,
-        }
-
-    except Exception as e:
-        return {"status": "error", "error_message": f"Engagement hook creation error: {str(e)}"}
-
-
-def analyze_content_for_opportunities(
-    content: str, target_role: str = "AI Consultant"
+def validate_deliverables_deterministic(
+    linkedin_post: str = "",
+    x_tweets: list[str] | None = None,
+    youtube_script: str = "",
+    banned_phrases: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Analyze content for recruiter appeal and opportunity generation potential.
+    """Deterministic Python quality & formatting gate for LinkedIn, X, and YouTube.
 
-    Scores content based on factors that attract professional opportunities:
-    SEO keywords, engagement hooks, portfolio mentions, and business value.
+    Detects hard violations that LLMs routinely miss:
+    - Unfilled placeholders like ``[mention a project]`` or ``[Add citations here]``
+    - Broken Markdown syntax in LinkedIn posts (``**bold**``, ``###``, code fences)
+    - X tweets exceeding 280 characters
+    - Banned AI-slop clichés (FR & EN)
+    - Missing visual cues in YouTube scripts
 
     Args:
-        content: The content to analyze
-        target_role: Target professional role for scoring
+        linkedin_post: Draft LinkedIn post plain text.
+        x_tweets: List of individual tweets in the X thread.
+        youtube_script: Draft YouTube long-form script.
+        banned_phrases: Optional override list of banned cliché phrases.
 
     Returns:
-        A dictionary containing:
-        - status: "success" or "error"
-        - opportunity_score: Overall score (0-100)
-        - seo_score: SEO keyword presence (0-100)
-        - engagement_score: Engagement hook effectiveness (0-100)
-        - value_score: Business value communication (0-100)
-        - suggestions: List of improvement suggestions
-        - error_message: Error description if status is "error"
+        Dictionary with ``passed`` (bool), ``violations`` (blocking), ``warnings``, and ``stats``.
     """
-    try:
-        if not content or len(content) < 100:
-            return {
-                "status": "error",
-                "error_message": "Content too short for meaningful analysis (minimum 100 characters)",
-            }
+    violations: list[str] = []
+    warnings: list[str] = []
+    cliches = [
+        p.lower() for p in (banned_phrases if banned_phrases is not None else load_banned_phrases())
+    ]
 
-        content_lower = content.lower()
+    # Placeholder pattern: catches [mention ...], [insert ...], [Add ...], [Continue ...], TODO, TBD
+    placeholder_re = re.compile(
+        r"\[(?!VISUAL|B-ROLL|CHART|DIAGRAM|CUT|DEMO|SCREEN|OVERLAY|0-9|\d+\])"
+        r"(?:mention|insert|add|continue|your|include|link|placeholder|todo|tbd)[^\]]*\]",
+        re.IGNORECASE,
+    )
 
-        # SEO keyword scoring
-        # Design decision: We check for both role-based keywords (consultant, engineer)
-        # and technical terms (PyTorch, TensorFlow) because recruiters search using both.
-        # The multiplier of 200 ensures that hitting ~50% of keywords gives a good score.
-        seo_keywords = [
-            "ai",
-            "machine learning",
-            "ml",
-            "deep learning",
-            "neural network",
-            "python",
-            "tensorflow",
-            "pytorch",
-            "consulting",
-            "engineer",
-            "architect",
-            "specialist",
-            "expert",
-        ]
-        seo_hits = sum(1 for keyword in seo_keywords if keyword in content_lower)
-        seo_score = min(100, (seo_hits / len(seo_keywords)) * 200)
+    def _scan_common(label: str, text: str) -> None:
+        if not text:
+            return
+        for match in placeholder_re.findall(text):
+            violations.append(f"[{label}] Unfilled placeholder detected: {match}")
+        if re.search(r"\b(TODO|TBD)\b", text):
+            violations.append(f"[{label}] Contains TODO/TBD marker.")
+        lower_text = text.lower()
+        for phrase in cliches:
+            if phrase and phrase in lower_text:
+                violations.append(f"[{label}] Banned AI cliché detected: '{phrase}'")
 
-        # Engagement hooks scoring
-        # Design decision: We look for calls-to-action, questions, and invitation words
-        # because these are proven to increase LinkedIn engagement and prompt connections.
-        # Target of 5 indicators gives 100 score - this is based on LinkedIn best practices.
-        engagement_indicators = [
-            "?",
-            "let's",
-            "connect",
-            "dm",
-            "message",
-            "discuss",
-            "share",
-            "comment",
-            "what's your",
-            "have you",
-            "follow",
-        ]
-        engagement_hits = sum(
-            1 for indicator in engagement_indicators if indicator in content_lower
-        )
-        engagement_score = min(100, (engagement_hits / 5) * 100)
-
-        # Business value scoring
-        # Design decision: Recruiters and clients care about business outcomes, not just tech.
-        # We prioritize words that show real-world impact and problem-solving ability.
-        # This distinguishes professional content from purely academic content.
-        value_indicators = [
-            "production",
-            "scale",
-            "roi",
-            "business",
-            "solution",
-            "impact",
-            "results",
-            "improve",
-            "optimize",
-            "problem",
-            "challenge",
-        ]
-        value_hits = sum(1 for indicator in value_indicators if indicator in content_lower)
-        value_score = min(100, (value_hits / 5) * 100)
-
-        # Portfolio mention detection
-        # Design decision: Mentioning projects demonstrates hands-on experience.
-        # This is critical for converting interest into opportunities.
-        # We use a lower threshold (3 mentions = 100) since portfolios are mentioned sparingly.
-        portfolio_indicators = ["project", "github", "kaggle", "built", "developed", "implemented"]
-        portfolio_mentions = sum(
-            1 for indicator in portfolio_indicators if indicator in content_lower
-        )
-        portfolio_score = min(100, (portfolio_mentions / 3) * 100)
-
-        # Calculate overall opportunity score
-        # Design decision: Weighted scoring gives highest priority to SEO and engagement (30% each)
-        # because these directly impact visibility and connection rate. Business value (25%) and
-        # portfolio (15%) are supporting factors. This weighting was designed based on LinkedIn's
-        # algorithm priorities and recruiter behavior patterns.
-        opportunity_score = int(
-            seo_score * 0.3 + engagement_score * 0.3 + value_score * 0.25 + portfolio_score * 0.15
-        )
-
-        # Generate suggestions
-        suggestions = []
-        if seo_score < 50:
-            suggestions.append(
-                f"Add more {target_role} keywords and technical terms for better visibility"
+    # 1. LinkedIn checks
+    if linkedin_post:
+        _scan_common("LinkedIn", linkedin_post)
+        if re.search(r"\*\*[^*]+\*\*", linkedin_post):
+            violations.append(
+                "[LinkedIn] Contains Markdown bold (**text**), which renders literally on LinkedIn."
             )
-        if engagement_score < 50:
-            suggestions.append(
-                "Include stronger calls-to-action and questions to invite connections"
+        if re.search(r"^#{1,6}\s", linkedin_post, flags=re.MULTILINE):
+            violations.append(
+                "[LinkedIn] Contains Markdown headings (###), not supported on LinkedIn."
             )
-        if value_score < 50:
-            suggestions.append("Emphasize business value and practical impact over pure theory")
-        if portfolio_mentions == 0:
-            suggestions.append(
-                "Mention your projects or portfolio to demonstrate hands-on expertise"
+        if "```" in linkedin_post:
+            violations.append(
+                "[LinkedIn] Contains Markdown code fences (```), not supported on LinkedIn."
             )
-        if len(content) < 300:
-            suggestions.append(
-                "Consider expanding content for better engagement (aim for 300+ words)"
+        hashtags = re.findall(r"(?<!\w)#[A-Za-z0-9À-ÿ_]+", linkedin_post)
+        if len(hashtags) > 5:
+            warnings.append(
+                f"[LinkedIn] Too many hashtags ({len(hashtags)}); keep <= 4 at the end."
+            )
+        word_count = len(linkedin_post.split())
+        if word_count < 80:
+            warnings.append(f"[LinkedIn] Post looks very short ({word_count} words).")
+        elif word_count > 650:
+            warnings.append(
+                f"[LinkedIn] Post is long ({word_count} words); consider tightening or moving details to carousel."
             )
 
-        return {
-            "status": "success",
-            "opportunity_score": opportunity_score,
-            "seo_score": int(seo_score),
-            "engagement_score": int(engagement_score),
-            "value_score": int(value_score),
-            "portfolio_score": int(portfolio_score),
-            "suggestions": suggestions
-            if suggestions
-            else ["Content looks great for opportunities!"],
-            "grade": "Excellent"
-            if opportunity_score >= 80
-            else "Good"
-            if opportunity_score >= 60
-            else "Needs Improvement",
-        }
+    # 2. X / Twitter thread checks
+    tweets = x_tweets or []
+    over_limit: list[dict[str, Any]] = []
+    for idx, tweet in enumerate(tweets, start=1):
+        clean_tweet = tweet.strip()
+        _scan_common(f"X Tweet {idx}", clean_tweet)
+        if len(clean_tweet) > 280:
+            over_limit.append({"index": idx, "length": len(clean_tweet)})
+            violations.append(f"[X Tweet {idx}] Exceeds 280 characters ({len(clean_tweet)} chars).")
 
-    except Exception as e:
-        return {"status": "error", "error_message": f"Content analysis error: {str(e)}"}
+    # 3. YouTube checks
+    if youtube_script:
+        _scan_common("YouTube", youtube_script)
+        if not re.search(
+            r"\[(VISUAL|B-ROLL|CHART|DIAGRAM|DEMO|SCREEN)", youtube_script, re.IGNORECASE
+        ):
+            warnings.append(
+                "[YouTube] No visual cues found (e.g., [VISUAL #1: ...]). Add cues tied to generated figures."
+            )
+
+    return {
+        "status": "success",
+        "passed": len(violations) == 0,
+        "violations": violations,
+        "warnings": warnings,
+        "stats": {
+            "linkedin_words": len(linkedin_post.split()) if linkedin_post else 0,
+            "x_tweet_count": len(tweets),
+            "x_over_280_count": len(over_limit),
+            "youtube_words": len(youtube_script.split()) if youtube_script else 0,
+        },
+    }
+
+
+def exit_loop(tool_context: ToolContext) -> dict[str, Any]:
+    """Terminate the ADK LoopAgent once all fact-check and anti-slop quality gates pass.
+
+    Call this tool ONLY when:
+    1. ``validate_deliverables_deterministic`` reports ``passed == True``.
+    2. Fact-checker confirms zero unsourced statistics or hallucinated citations.
+    3. Editorial critic score is >= 85/100 with no blocking issues.
+    """
+    if hasattr(tool_context, "actions"):
+        tool_context.actions.escalate = True
+    return {"status": "success", "message": "Quality gate passed. Exiting refinement loop."}

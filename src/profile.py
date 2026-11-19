@@ -1,4 +1,6 @@
-"""User professional profile configuration for personalized content generation."""
+"""User professional profile configuration for B2B & scientific personal branding."""
+
+from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
@@ -7,18 +9,35 @@ from typing import Any
 
 import yaml
 
+DEFAULT_BANNED_PHRASES: list[str] = [
+    "navigating the next wave",
+    "game-changing",
+    "game changer",
+    "unlock the power of",
+    "in today's fast-paced world",
+    "in the ever-evolving landscape",
+    "revolutionizing",
+    "are you ready for the",
+    "let's dive in",
+    "delve into",
+    "in conclusion",
+    "harness the power",
+    "transformative potential",
+    "the future is here",
+    "dans un monde en constante évolution",
+    "révolutionne le secteur",
+    "plongeons ensemble",
+    "prêt à débloquer",
+]
+
 
 @dataclass
 class UserProfile:
-    """Professional profile configuration for content personalization.
-
-    This profile helps tailor content to your expertise, positioning,
-    and professional goals for maximum opportunity generation.
-    """
+    """Professional profile configuration for personalized B2B/R&D content generation."""
 
     # Professional Identity
     name: str = "Your Name"
-    target_role: str = "AI Consultant"  # AI Consultant, ML Engineer, AI Architect, etc.
+    target_role: str = "Principal AI Engineer & Research Consultant"
     expertise_areas: list[str] = field(
         default_factory=lambda: ["Machine Learning", "Artificial Intelligence", "Deep Learning"]
     )
@@ -26,24 +45,51 @@ class UserProfile:
     # Professional Goals
     content_goals: list[str] = field(
         default_factory=lambda: [
-            "opportunities",  # Attract freelance/job opportunities
-            "credibility",  # Build professional credibility
-            "visibility",  # Increase visibility in the field
+            "opportunities",  # Attract B2B consulting / CIR-CII clients
+            "credibility",  # Build scientific & engineering authority
+            "visibility",  # Grow audience for digital assets
         ]
     )
 
+    # B2B Positioning & Editorial Strategy (v2)
+    editorial_pillars: list[str] = field(
+        default_factory=lambda: [
+            "Production AI & Agentic Systems (cost, latency, evaluation, MLOps)",
+            "AdTech, MFA & Ad Fraud Detection at Scale",
+            "Build in Public: Applied R&D, Active Research & Digital Assets",
+        ]
+    )
+    target_personas: list[str] = field(
+        default_factory=lambda: [
+            "CTOs & VP Engineering",
+            "VP Data / Head of AI",
+            "CMOs & AdTech / MarTech Leaders",
+            "Tech Founders & Product Leaders",
+        ]
+    )
+    business_offers: list[str] = field(
+        default_factory=lambda: [
+            "Freelance AI Engineering & Architecture (CIR / CII eligible R&D)",
+            "AdTech / Ad Fraud / Brand Safety AI Audits & Systems",
+            "Digital Assets & Open-Source Benchmarks",
+        ]
+    )
+    banned_phrases: list[str] = field(default_factory=lambda: list(DEFAULT_BANNED_PHRASES))
+
     # Geographic & Market
-    region: str = "Europe"  # Europe, US, Asia, Global, etc.
-    languages: list[str] = field(default_factory=lambda: ["English"])
+    region: str = "Europe"
+    languages: list[str] = field(default_factory=lambda: ["French", "English"])
     target_industries: list[str] = field(
-        default_factory=lambda: ["Technology", "Finance", "Healthcare", "Consulting"]
+        default_factory=lambda: ["AdTech", "MarTech", "FinTech", "SaaS", "Media"]
     )
 
     # Portfolio & Experience
-    github_username: str = ""  # Your GitHub username
-    linkedin_url: str = ""  # Your LinkedIn profile URL
-    portfolio_url: str = ""  # Personal website/portfolio
-    kaggle_username: str = ""  # Your Kaggle username
+    github_username: str = ""
+    linkedin_url: str = ""
+    portfolio_url: str = ""
+    kaggle_username: str = ""
+    x_handle: str = ""
+    youtube_channel: str = ""
 
     # Key Projects (to mention in content)
     notable_projects: list[dict[str, str]] = field(
@@ -59,35 +105,37 @@ class UserProfile:
 
     # Technical Skills & Tools
     primary_skills: list[str] = field(
-        default_factory=lambda: ["Python", "PyTorch", "TensorFlow", "Scikit-learn", "MLflow"]
+        default_factory=lambda: ["Python", "PyTorch", "HuggingFace", "LangGraph", "MLflow"]
     )
 
     # Content Preferences
-    content_tone: str = (
-        "professional-conversational"  # professional-formal, professional-conversational, technical
-    )
-    use_emojis: bool = True  # Use emojis in LinkedIn posts
-    posting_frequency: str = "2-3x per week"  # daily, 2-3x per week, weekly
+    content_tone: str = "professional-conversational"
+    use_emojis: bool = False  # Restrained by default to avoid AI-slop look
+    posting_frequency: str = "2-3x per week"
 
-    # SEO & Positioning
+    # Positioning
     unique_value_proposition: str = (
         "I help companies turn AI research into production-ready solutions"
     )
     key_differentiators: list[str] = field(
         default_factory=lambda: [
-            "Bridging research and production",
-            "End-to-end AI implementation",
-            "Business-focused technical expertise",
+            "Bridging PhD-level research and production engineering",
+            "End-to-end AI systems at ultra-low inference cost",
+            "Proven business impact across AdTech and FinTech",
         ]
     )
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert profile to dictionary for agent context."""
+        """Convert profile to dictionary for YAML serialization and agent context."""
         return {
             "name": self.name,
             "target_role": self.target_role,
             "expertise_areas": self.expertise_areas,
             "content_goals": self.content_goals,
+            "editorial_pillars": self.editorial_pillars,
+            "target_personas": self.target_personas,
+            "business_offers": self.business_offers,
+            "banned_phrases": self.banned_phrases,
             "region": self.region,
             "languages": self.languages,
             "target_industries": self.target_industries,
@@ -95,6 +143,8 @@ class UserProfile:
             "linkedin_url": self.linkedin_url,
             "portfolio_url": self.portfolio_url,
             "kaggle_username": self.kaggle_username,
+            "x_handle": self.x_handle,
+            "youtube_channel": self.youtube_channel,
             "notable_projects": self.notable_projects,
             "primary_skills": self.primary_skills,
             "content_tone": self.content_tone,
@@ -105,48 +155,58 @@ class UserProfile:
         }
 
     def get_profile_summary(self) -> str:
-        """Generate a text summary of the profile for agent instructions."""
+        """Generate a concise B2B/R&D profile summary for agent instructions."""
         expertise_str = ", ".join(self.expertise_areas)
-        skills_str = ", ".join(self.primary_skills[:5])
+        skills_str = ", ".join(self.primary_skills[:8])
         goals_str = ", ".join(self.content_goals)
+        personas_str = ", ".join(self.target_personas)
+        pillars_str = "\n  - ".join(self.editorial_pillars)
+        offers_str = "\n  - ".join(self.business_offers)
 
-        summary = f"""
-**Professional Profile**:
-- Role: {self.target_role}
+        summary = f"""**Author Identity & Positioning**:
+- Name: {self.name}
+- Positioning: {self.target_role}
 - Expertise: {expertise_str}
-- Key Skills: {skills_str}
-- Region: {self.region}
+- Core Stack: {skills_str}
+- Market / Region: {self.region} ({", ".join(self.languages)})
+- Target Personas (NOT generic HR recruiters): {personas_str}
 - Content Goals: {goals_str}
 - Value Proposition: {self.unique_value_proposition}
-- Tone: {self.content_tone}
+- Tone: {self.content_tone} (emojis: {"minimal" if self.use_emojis else "none"})
+
+**Editorial Pillars**:
+  - {pillars_str}
+
+**Offers / Strategic Angles (mention subtly only when relevant)**:
+  - {offers_str}
 """
 
         if self.github_username:
-            summary += f"- GitHub: github.com/{self.github_username}\n"
+            summary += f"\n- GitHub: https://github.com/{self.github_username}"
         if self.linkedin_url:
-            summary += f"- LinkedIn: {self.linkedin_url}\n"
+            summary += f"\n- LinkedIn: {self.linkedin_url}"
+        if self.x_handle:
+            summary += f"\n- X: https://x.com/{self.x_handle.lstrip('@')}"
+        if self.youtube_channel:
+            summary += f"\n- YouTube: {self.youtube_channel}"
 
-        if self.notable_projects and self.notable_projects[0]["name"] != "Project Name":
-            summary += "\n**Notable Projects to Mention**:\n"
-            for project in self.notable_projects[:3]:
+        if self.notable_projects and self.notable_projects[0].get("name") != "Project Name":
+            summary += "\n\n**Notable Projects**:\n"
+            for project in self.notable_projects[:4]:
                 summary += (
-                    f"- {project['name']}: {project['description']} ({project['technologies']})\n"
+                    f"- {project['name']}: {project['description']} "
+                    f"({project.get('technologies', '')})\n"
                 )
 
         return summary
 
     def validate(self) -> dict[str, list[str]]:
-        """Validate profile completeness and correctness.
+        """Validate profile completeness and correctness."""
+        errors: list[str] = []
+        warnings: list[str] = []
 
-        Returns:
-            Dictionary with 'errors' and 'warnings' lists
-        """
-        errors = []
-        warnings = []
-
-        # Validate required fields
         if self.name == "Your Name" or not self.name.strip():
-            warnings.append("⚠️  Name is not set. Please update 'name' field in profile.yaml")
+            warnings.append("Name is not set. Please update 'name' field in profile.yaml")
 
         if not self.expertise_areas or (
             len(self.expertise_areas) == 3
@@ -154,51 +214,46 @@ class UserProfile:
             and self.expertise_areas[1] == "Artificial Intelligence"
         ):
             warnings.append(
-                "⚠️  Using default expertise areas. Update 'expertise_areas' with your specific skills"
+                "Using default expertise areas. Update 'expertise_areas' with your specific skills"
             )
 
-        # Validate URLs
         url_pattern = re.compile(
-            r"^https?://"  # http:// or https://
-            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|"  # domain...
-            r"localhost|"  # localhost...
-            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # ...or ip
-            r"(?::\d+)?"  # optional port
+            r"^https?://"
+            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|"
+            r"localhost|"
+            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
+            r"(?::\d+)?"
             r"(?:/?|[/?]\S+)$",
             re.IGNORECASE,
         )
 
         if self.linkedin_url and not url_pattern.match(self.linkedin_url):
             errors.append(
-                f"❌ Invalid LinkedIn URL: '{self.linkedin_url}'. Must start with http:// or https://"
+                f"Invalid LinkedIn URL: '{self.linkedin_url}'. Must start with http:// or https://"
             )
 
         if self.portfolio_url and not url_pattern.match(self.portfolio_url):
             errors.append(
-                f"❌ Invalid portfolio URL: '{self.portfolio_url}'. Must start with http:// or https://"
+                f"Invalid portfolio URL: '{self.portfolio_url}'. Must start with http:// or https://"
             )
 
-        # Validate GitHub username (no special URL validation, just username)
         if self.github_username and "/" in self.github_username:
             warnings.append(
-                f"⚠️  GitHub username should be just the username, not a URL: '{self.github_username}'"
+                f"GitHub username should be just the username, not a URL: '{self.github_username}'"
             )
 
-        # Validate Kaggle username
         if self.kaggle_username and "/" in self.kaggle_username:
             warnings.append(
-                f"⚠️  Kaggle username should be just the username, not a URL: '{self.kaggle_username}'"
+                f"Kaggle username should be just the username, not a URL: '{self.kaggle_username}'"
             )
 
-        # Validate content_tone enum
         valid_tones = ["professional-formal", "professional-conversational", "technical", "casual"]
         if self.content_tone not in valid_tones:
             errors.append(
-                f"❌ Invalid content_tone: '{self.content_tone}'. "
+                f"Invalid content_tone: '{self.content_tone}'. "
                 f"Valid options: {', '.join(valid_tones)}"
             )
 
-        # Validate content_goals
         valid_goals = [
             "opportunities",
             "credibility",
@@ -209,73 +264,56 @@ class UserProfile:
         invalid_goals = [g for g in self.content_goals if g not in valid_goals]
         if invalid_goals:
             warnings.append(
-                f"⚠️  Unrecognized content goals: {', '.join(invalid_goals)}. "
+                f"Unrecognized content goals: {', '.join(invalid_goals)}. "
                 f"Valid options: {', '.join(valid_goals)}"
             )
 
-        # Validate posting_frequency
         valid_frequencies = ["daily", "2-3x per week", "weekly", "biweekly", "monthly"]
         if self.posting_frequency not in valid_frequencies:
             warnings.append(
-                f"⚠️  Unrecognized posting frequency: '{self.posting_frequency}'. "
+                f"Unrecognized posting frequency: '{self.posting_frequency}'. "
                 f"Valid options: {', '.join(valid_frequencies)}"
             )
 
-        # Validate lists are not empty
         if not self.expertise_areas:
-            errors.append(
-                "❌ 'expertise_areas' cannot be empty. Add at least one area of expertise"
-            )
+            errors.append("'expertise_areas' cannot be empty. Add at least one area of expertise")
 
         if not self.primary_skills:
-            warnings.append("⚠️  'primary_skills' is empty. Consider adding your technical skills")
+            warnings.append("'primary_skills' is empty. Consider adding your technical skills")
 
         if not self.target_industries:
-            warnings.append("⚠️  'target_industries' is empty. Consider adding target industries")
+            warnings.append("'target_industries' is empty. Consider adding target industries")
 
-        # Validate notable_projects structure
         for idx, project in enumerate(self.notable_projects):
             required_keys = ["name", "description", "technologies", "url"]
             missing_keys = [key for key in required_keys if key not in project]
             if missing_keys:
-                warnings.append(f"⚠️  Project {idx + 1} missing keys: {', '.join(missing_keys)}")
-
-            # Check if still using default project
+                warnings.append(f"Project {idx + 1} missing keys: {', '.join(missing_keys)}")
             if project.get("name") == "Project Name":
                 warnings.append(
-                    "⚠️  Using default project placeholder. Update 'notable_projects' with your actual projects"
+                    "Using default project placeholder. Update 'notable_projects' with your actual projects"
                 )
-                break  # Only warn once
+                break
 
-        # Validate unique_value_proposition
         if (
             self.unique_value_proposition
             == "I help companies turn AI research into production-ready solutions"
         ):
             warnings.append(
-                "⚠️  Using default value proposition. Update 'unique_value_proposition' with your unique offering"
+                "Using default value proposition. Update 'unique_value_proposition' with your unique offering"
             )
 
         return {"errors": errors, "warnings": warnings}
 
 
-# Default profile (users should customize this)
 DEFAULT_PROFILE = UserProfile()
 
-# Path to user profile configuration
 PROFILE_DIR = Path.home() / ".agentic-content-generation"
 PROFILE_PATH = PROFILE_DIR / "profile.yaml"
 
 
 def load_profile_from_yaml(path: Path) -> UserProfile:
-    """Load user profile from YAML file.
-
-    Args:
-        path: Path to the YAML file
-
-    Returns:
-        UserProfile instance
-    """
+    """Load user profile from YAML file."""
     if not path.exists():
         return DEFAULT_PROFILE
 
@@ -284,7 +322,6 @@ def load_profile_from_yaml(path: Path) -> UserProfile:
             data = yaml.safe_load(f)
             if not data:
                 return DEFAULT_PROFILE
-            # Filter out any keys that don't exist in UserProfile
             valid_keys = UserProfile.__annotations__.keys()
             filtered_data = {k: v for k, v in data.items() if k in valid_keys}
             return UserProfile(**filtered_data)
@@ -294,75 +331,31 @@ def load_profile_from_yaml(path: Path) -> UserProfile:
 
 
 def save_profile_to_yaml(profile: UserProfile, path: Path) -> None:
-    """Save user profile to YAML file.
-
-    Args:
-        profile: UserProfile instance
-        path: Path to save the YAML file
-    """
-    # Create directory if it doesn't exist
+    """Save user profile to YAML file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(profile.to_dict(), f, default_flow_style=False, sort_keys=False)
+        yaml.dump(
+            profile.to_dict(), f, default_flow_style=False, sort_keys=False, allow_unicode=True
+        )
 
 
 def load_user_profile(validate: bool = True) -> UserProfile:
-    """Load user profile from configuration.
+    """Load user profile from configuration."""
+    profile = load_profile_from_yaml(PROFILE_PATH) if PROFILE_PATH.exists() else DEFAULT_PROFILE
 
-    Checks ~/.agentic-content-generation/profile.yaml first.
-    Falls back to default profile if not found.
-
-    Args:
-        validate: Whether to run validation and display warnings/errors
-
-    Returns:
-        UserProfile instance
-    """
-    if PROFILE_PATH.exists():
-        print(f"👤 Loading profile from {PROFILE_PATH}")
-        profile = load_profile_from_yaml(PROFILE_PATH)
-    else:
-        print("👤 Using default profile (no custom profile found)")
-        print(f"💡 Run with --init-profile to create one at {PROFILE_PATH}")
-        profile = DEFAULT_PROFILE
-
-    # Validate profile if requested
     if validate:
         validation = profile.validate()
         errors = validation["errors"]
-        warnings = validation["warnings"]
-
         if errors:
-            print("\n❌ Profile Validation Errors:")
-            for error in errors:
-                print(f"   {error}")
-            print("\n⚠️  Please fix these errors in your profile.yaml before continuing.\n")
-            raise ValueError(f"Profile validation failed with {len(errors)} error(s)")
-
-        if warnings:
-            print("\n📋 Profile Validation Warnings:")
-            for warning in warnings:
-                print(f"   {warning}")
-            print()
+            raise ValueError(f"Profile validation failed with {len(errors)} error(s): {errors}")
 
     return profile
 
 
 def create_custom_profile(
-    name: str, target_role: str, expertise_areas: list[str], **kwargs
+    name: str, target_role: str, expertise_areas: list[str], **kwargs: Any
 ) -> UserProfile:
-    """Create a custom user profile.
-
-    Args:
-        name: Your name
-        target_role: Target professional role
-        expertise_areas: List of expertise areas
-        **kwargs: Additional profile fields
-
-    Returns:
-        UserProfile instance
-    """
+    """Create a custom user profile."""
     return UserProfile(
         name=name, target_role=target_role, expertise_areas=expertise_areas, **kwargs
     )

@@ -1,12 +1,20 @@
-# Google Agent Development Kit
-google-adk>=0.1.0
-google-genai>=0.1.0
-
-# Database (async SQLite driver for ADK sessions)
-aiosqlite>=0.19.0
-
-# Additional dependencies
+# Core dependencies for Scientific Content Generation Agent v2
+google-adk[eval]>=1.0.0
+google-genai>=1.0.0
+litellm>=1.60.0
+pydantic>=2.7.0
+duckduckgo-search>=6.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
-duckduckgo-search>=6.0.0
-google-cloud-aiplatform>=1.38.0
+pyyaml>=6.0
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+pypdf>=5.0.0
+defusedxml>=0.7.1
+matplotlib>=3.9.0
+pillow>=10.4.0
+fpdf2>=2.8.0
+
+# UI dependencies (for Gradio / Hugging Face Spaces)
+gradio>=5.0.0
+pandas>=2.0.0

@@ -1,9 +1,6 @@
-"""Entry point for Agent Engine deployment.
-
-This module provides the root_agent instance required by the ADK deployment system.
-"""
+"""Entry point for Google ADK web UI and Agent Engine deployment."""
 
 from .agents import create_content_generation_pipeline
 
-# Create the root agent for deployment
+# Root agent discovered by `adk web` and `adk eval`
 root_agent = create_content_generation_pipeline()

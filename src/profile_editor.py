@@ -1,6 +1,7 @@
 """Interactive profile editor for the content generation agent."""
 
 import os
+import shutil
 import subprocess
 
 from src.profile import PROFILE_PATH
@@ -45,8 +46,11 @@ def edit_profile_interactive() -> bool:
     print(f"📁 File: {PROFILE_PATH}\n")
 
     try:
-        # Open editor
-        subprocess.run([editor, str(PROFILE_PATH)], check=True)
+        # Resolve executable path before launching interactive editor
+        editor_bin = shutil.which(editor)
+        if not editor_bin:
+            raise FileNotFoundError(editor)
+        subprocess.run([editor_bin, str(PROFILE_PATH)], check=True)  # noqa: S603
 
         # Read modified content
         with open(PROFILE_PATH, encoding="utf-8") as f:
