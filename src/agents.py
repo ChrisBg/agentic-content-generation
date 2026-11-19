@@ -1,441 +1,407 @@
-"""Agent definitions for the scientific content generation system."""
+"""Hybrid Multi-LLM Google ADK pipeline (Sequential -> Parallel -> Parallel -> Loop).
 
-from google.adk.agents import LlmAgent, SequentialAgent
-from google.adk.models.google_llm import Gemini
+Inspired by google-research/paper-orchestra:
+1. OutlineBlueprintAgent: Synthesizes raw materials + human seed into angle, biblio plan, visual & video blueprint.
+2. ParallelEnrichmentStage (ParallelAgent):
+   - HybridLiteratureAgent (arXiv + Semantic Scholar verification + BibTeX)
+   - PersonalEvidenceAgent (Local Knowledge Base: Case Studies + Voice DNA)
+   - VisualAssetAgent (Matplotlib charts + Architecture diagrams + Demo overlays)
+3. ParallelChannelWritersStage (ParallelAgent, Multi-LLM routed):
+   - LinkedInWriterAgent (Claude Sonnet by default)
+   - XThreadWriterAgent (Grok / GPT-4.1 by default)
+   - YouTubeWriterAgent (Claude Sonnet by default)
+   - NewsletterWriterAgent (optional)
+4. QualityRefinementLoop (LoopAgent, max_iterations=3):
+   - ParallelCriticsStage: FactCheckerCritic + EditorialAntiSlopCritic (cross-family LLMs + deterministic linter)
+   - ContentRefinerAgent: Refines drafts, renders final PDF carousel & MP4 short videos, calls exit_loop when passed.
+"""
 
+from __future__ import annotations
+
+from google.adk.agents import LlmAgent, LoopAgent, ParallelAgent, SequentialAgent
+
+from .channels import create_channel_writer_agent, get_channel_plugin
 from .config import (
-    CONTENT_GENERATOR_AGENT_NAME,
-    DEFAULT_MODEL,
+    DEFAULT_CHANNELS,
+    EDITORIAL_CRITIC_AGENT_NAME,
+    FACT_CHECKER_AGENT_NAME,
+    MAX_REFINEMENT_ITERATIONS,
+    OUTLINE_AGENT_NAME,
+    PERSONAL_CONTEXT_AGENT_NAME,
+    REFINER_AGENT_NAME,
     RESEARCH_AGENT_NAME,
-    RETRY_CONFIG,
-    REVIEW_AGENT_NAME,
     ROOT_AGENT_NAME,
-    STRATEGY_AGENT_NAME,
+    VISUAL_AGENT_NAME,
 )
+from .knowledge_base import get_voice_and_style_guide, retrieve_personal_evidence
+from .llm_router import ModelRouter
 from .tools import (
-    analyze_content_for_opportunities,
-    create_engagement_hooks,
-    extract_key_findings,
-    format_for_platform,
-    generate_citations,
-    generate_seo_keywords,
-    search_industry_trends,
-    search_papers,
+    exit_loop,
+    generate_bibtex,
+    search_arxiv_papers,
+    search_industry_context,
+    search_semantic_scholar,
     search_web,
+    validate_deliverables_deterministic,
+    verify_citation_semantic_scholar,
+)
+from .video_assets import render_short_explainer_video
+from .visuals import (
+    render_architecture_diagram,
+    render_data_chart,
+    render_demo_overlays,
+    render_linkedin_carousel_pdf,
 )
 
 
-def create_research_agent() -> LlmAgent:
-    """Create the ResearchAgent that searches for papers and current information.
+def create_outline_blueprint_agent(router: ModelRouter | None = None) -> LlmAgent:
+    """Stage 1: Synthesize topic, human seed, and raw materials into a structured blueprint."""
+    router = router or ModelRouter()
+    return LlmAgent(
+        name=OUTLINE_AGENT_NAME,
+        model=router.get_model("outline"),
+        description="Plans the editorial angle, dual literature search queries, and visual/video blueprint.",
+        instruction="""You are a Chief Editorial Strategist & Research Director (PaperOrchestra-style Outline Agent).
 
-    The ResearchAgent is responsible for:
-    - Searching academic papers on the given topic
-    - Finding recent trends and discussions
-    - Extracting key findings from research
-    - Compiling relevant sources for content creation
+Analyze the user's request, including:
+- Topic & target language / channels
+- Human Seed (author's personal take — treat this as the central thesis!)
+- Any ingested PaperOrchestra raw materials (LaTeX sections, tables, experimental metrics, notebooks, PDFs)
+- Author profile & B2B positioning (CTOs, VP Data, AdTech/MarTech leaders, CIR/CII R&D)
 
-    Returns:
-        LlmAgent configured for research tasks
-    """
+Produce a crisp, structured **CONTENT & VISUAL BLUEPRINT** containing:
+1. **Core Thesis & Contrarian Angle**: One sharp sentence that stands out in a crowded AI feed.
+2. **Editorial Pillar**: Map to one of the author's pillars (Production AI/Agents, AdTech/MFA/Ad Fraud, or Build-in-Public R&D).
+3. **Dual Literature Search Plan** (PaperOrchestra pattern):
+   - 2 macro industry/context search queries (market, production adoption, costs).
+   - 2 micro academic search queries (specific papers, methods, benchmarks for Semantic Scholar & arXiv).
+4. **Personal Evidence Queries**: Which of the author's past projects/metrics should be retrieved to anchor the narrative.
+5. **Visual & Short-Demo Blueprint**:
+   - Chart Spec (ONLY using real numbers from raw materials or verified research — never invent numbers!).
+   - Architecture Diagram Spec (3 to 6 concrete pipeline blocks).
+   - 45-60s Short Demo / Explainer Video angle (what visual hook appears in the first 3 seconds).
+
+Be concise, structured, and concrete. Output this blueprint as your final response.
+""",
+        tools=[],
+        output_key="content_blueprint",
+    )
+
+
+def create_literature_agent(router: ModelRouter | None = None) -> LlmAgent:
+    """Stage 2a: Hybrid literature discovery + Semantic Scholar citation verification."""
+    router = router or ModelRouter()
     return LlmAgent(
         name=RESEARCH_AGENT_NAME,
-        model=Gemini(model=DEFAULT_MODEL, retry_options=RETRY_CONFIG),
-        description="Searches for academic papers, research articles, and current trends on a given topic",
-        instruction="""You are a research specialist focused on finding credible, up-to-date information.
+        model=router.get_model("research"),
+        description="Discovers academic papers & industry signals and verifies citations via Semantic Scholar.",
+        instruction="""You are a Hybrid Literature & Fact-Grounding Specialist (PaperOrchestra pattern).
 
-Your tasks:
-1. **Deep Research Workflow**:
-   - First, search for academic papers using search_papers() on the given topic.
-   - Second, search for broader context (industry news, blogs, real-world applications) using search_web().
-   - Analyze the initial results. If you find gaps or need more specific details, perform follow-up searches.
+Read the blueprint:
+{content_blueprint}
 
-2. **Synthesize Findings**:
-   - Combine academic rigor (from papers) with real-world relevance (from web search).
-   - Extract key findings using extract_key_findings().
-   - Identify current trends based on both research and industry news.
+Execute this rigorous workflow:
+1. **Academic Discovery**:
+   - Call `search_semantic_scholar()` on the micro academic queries (preferring well-cited or recent papers).
+   - Call `search_arxiv_papers(..., sort_by="relevance")` for cutting-edge preprints.
+2. **Citation Verification**:
+   - For the top 2-4 papers you intend to cite, verify canonical title/year/authors via `verify_citation_semantic_scholar()` if they came only from arXiv or web snippets.
+   - Call `generate_bibtex()` on the verified papers so a clean BibTeX block is ready for export and LaTeX reuse.
+3. **Industry Grounding**:
+   - Call `search_industry_context()` or `search_web()` for real-world deployment context.
 
-3. **Compile Comprehensive Report**:
-   - **Academic Papers**: List of papers with titles, authors, and key findings.
-   - **Industry Context**: Real-world applications, news, and market data.
-   - **Current Trends**: Emerging themes from both research and industry.
-   - **Key Insights**: Most important takeaways.
-   - **Sources**: All sources (papers and web links) with URLs for proper citation.
+Compile a structured **VERIFIED RESEARCH DOSSIER**:
+- **Verified Academic Papers**: Title, Authors, EXACT Year, Venue, Citation Count, URL, and 2-3 bullet factual findings directly supported by the abstract.
+- **Verified Benchmarks & Quantitative Facts**: Exact numbers with exact source attribution (never extrapolate).
+- **Industry Context**: Practical market signals.
+- **BibTeX Block**: The exact output of `generate_bibtex()`.
 
-Focus on scientific credibility AND practical relevance.
-Organize findings clearly for the next agent to use.
-
-IMPORTANT: After completing your research, you MUST provide the final report as your text response. This text will be passed to the next agent.
-""",
-        tools=[search_papers, extract_key_findings, search_web],
-        output_key="research_findings",
-    )
-
-
-def create_strategy_agent() -> LlmAgent:
-    """Create the StrategyAgent that plans content approach and angles.
-
-    The StrategyAgent is responsible for:
-    - Analyzing research findings
-    - Determining the best angles for content
-    - Identifying target audience
-    - Planning platform-specific approaches
-    - Defining key messages
-
-    Returns:
-        LlmAgent configured for content strategy
-    """
-    return LlmAgent(
-        name=STRATEGY_AGENT_NAME,
-        model=Gemini(model=DEFAULT_MODEL, retry_options=RETRY_CONFIG),
-        description="Analyzes research and creates content strategy for different platforms",
-        instruction="""You are a content strategist specializing in professional positioning and opportunity generation for AI/ML experts.
-
-You will receive research findings from the ResearchAgent. Your task is to:
-
-1. Analyze the research findings: {research_findings}
-
-2. Determine content angles focused on **professional opportunities**:
-   - What demonstrates deep expertise and thought leadership?
-   - What business problems does this research solve?
-   - How can this position the author as an expert consultant/engineer?
-   - What will attract recruiters and potential clients on LinkedIn?
-   - What's engaging enough for a comprehensive blog?
-   - What can create viral Twitter insights?
-
-3. Create a content strategy document with:
-
-   **Primary Angle**: The main hook/message (focus on business value + expertise)
-
-   **Professional Positioning**:
-   - Position author as: AI/ML consultant, expert, thought leader
-   - Demonstrate: Deep technical expertise + business acumen
-   - Show: Ability to turn research into production solutions
-
-   **Target Audience**:
-   - Primary: Recruiters, hiring managers, potential clients
-   - Secondary: Peers, researchers, industry professionals
-   - Tertiary: Students, aspiring professionals
-
-   **Key Messages** (3-5 core points):
-   - Lead with business impact and practical value
-   - Support with technical depth and research
-   - Include pain points this expertise solves
-   - Mention relevant skills/technologies
-
-   **Platform Strategy**:
-   * **Blog**: Educational deep-dive establishing authority
-     - Comprehensive technical explanation
-     - Real-world applications and case studies
-     - Position as expert resource
-
-   * **LinkedIn** (PRIMARY PLATFORM for opportunities):
-     - Professional credibility + opportunity magnet
-     - Business-focused angle with technical credibility
-     - Strong engagement hooks and CTAs
-     - SEO keywords for recruiter visibility
-     - Portfolio/project mentions
-     - Clear invitation to connect/collaborate
-
-   * **Twitter**: Thought leadership + visibility
-     - Provocative insights that spark discussion
-     - Demonstrate expertise in bite-sized format
-     - Drive traffic to profile
-
-   **Tone**: Professional-conversational with confident expertise
-
-   **Opportunity Elements**:
-   - Keywords: Identify must-include SEO terms
-   - Pain Points: Business problems this expertise addresses
-   - Portfolio Opportunities: Where to mention projects/experience
-   - CTAs: How to invite professional connections
-
-Focus on building credibility that translates to career opportunities.
-Position the author as someone companies want to hire or work with.
-""",
-        tools=[],  # Strategy agent uses reasoning, not tools
-        output_key="content_strategy",
-    )
-
-
-def create_content_generator_agent() -> LlmAgent:
-    """Create the ContentGeneratorAgent that produces platform-specific content.
-
-    The ContentGeneratorAgent is responsible for:
-    - Creating blog article drafts
-    - Writing LinkedIn posts
-    - Composing Twitter threads
-    - Tailoring tone and length for each platform
-    - Incorporating research findings and sources
-
-    Returns:
-        LlmAgent configured for content generation
-    """
-    return LlmAgent(
-        name=CONTENT_GENERATOR_AGENT_NAME,
-        model=Gemini(model=DEFAULT_MODEL, retry_options=RETRY_CONFIG),
-        description="Generates platform-specific content based on research and strategy",
-        instruction="""You are an expert content creator specializing in scientific and professional communication.
-
-You will receive:
-- Research findings: {research_findings}
-- Content strategy: {content_strategy}
-
-Your task is to create high-quality content for THREE platforms:
-
-1. **BLOG ARTICLE** (1000-2000 words):
-   - Title: Compelling and SEO-friendly
-   - Introduction: Hook the reader, explain why this matters
-   - Main sections: Deep dive into key findings with proper structure (H2/H3 headings)
-   - Examples and explanations: Make complex ideas accessible
-   - Conclusion: Summarize and provide future outlook
-   - References section: Placeholder for citations
-   - Tone: Educational, authoritative, accessible
-
-2. **LINKEDIN POST** (300-800 words):
-   - Hook: Start with an attention-grabbing statement or question
-   - Context: Brief background on why this matters
-   - Key insights: 3-5 main takeaways with brief explanations
-   - Professional angle: How this impacts the field/industry
-   - Call-to-action: Engage readers (ask question, invite comments)
-   - Hashtags: 3-5 relevant professional hashtags
-   - Tone: Professional, conversational, thought-leadership
-
-3. **TWITTER THREAD** (8-12 tweets):
-   - Tweet 1: Hook + thread overview (include "🧵 Thread:")
-   - Tweets 2-10: One key insight per tweet, numbered (2/12, 3/12, etc.)
-   - Use emojis strategically for visual appeal
-   - Each tweet must be under 280 characters
-   - Final tweet: Conclusion + relevant hashtags
-   - Tone: Concise, engaging, insightful
-
-For each platform, use format_for_platform() to ensure proper formatting.
-
-Important:
-- Reference specific papers/sources naturally in the content
-- Maintain scientific accuracy while being engaging
-- Build author's credibility by demonstrating deep understanding
-- Make content shareable and valuable
-
-Output format:
-=== BLOG ARTICLE ===
-[Full blog content]
-
-=== LINKEDIN POST ===
-[Full LinkedIn content]
-
-=== TWITTER THREAD ===
-[Full Twitter thread]
-""",
-        tools=[format_for_platform],
-        output_key="generated_content",
-    )
-
-
-def create_linkedin_optimization_agent() -> LlmAgent:
-    """Create the LinkedInOptimizationAgent that optimizes content for opportunities.
-
-    The LinkedInOptimizationAgent is responsible for:
-    - Optimizing LinkedIn content for SEO and recruiter visibility
-    - Adding engagement hooks and calls-to-action
-    - Integrating portfolio mentions naturally
-    - Emphasizing business value and practical impact
-    - Positioning author as expert/consultant
-
-    Returns:
-        LlmAgent configured for LinkedIn optimization
-    """
-    return LlmAgent(
-        name="LinkedInOptimizationAgent",
-        model=Gemini(model=DEFAULT_MODEL, retry_options=RETRY_CONFIG),
-        description="Optimizes content for professional opportunities and recruiter visibility",
-        instruction="""You are a LinkedIn optimization specialist focused on career opportunities.
-
-You will receive:
-- Research findings: {research_findings}
-- Content strategy: {content_strategy}
-- Generated content: {generated_content}
-
-Your mission: Optimize the LINKEDIN POST ONLY to maximize professional opportunities.
-
-**Optimization Tasks**:
-
-1. **SEO Optimization** (use generate_seo_keywords tool):
-   - Add keywords recruiters search for (AI Consultant, ML Engineer, etc.)
-   - Include hot technical skills (PyTorch, TensorFlow, LangChain, etc.)
-   - Weave keywords naturally into the post
-
-2. **Engagement Hooks** (use create_engagement_hooks tool):
-   - Start with a compelling hook that stops scrolling
-   - End with a strong call-to-action inviting connections
-   - Add 1-2 questions that spark discussion
-   - Include invitation to DM for collaboration
-
-3. **Portfolio Integration**:
-   - Naturally mention relevant projects or experience
-   - Reference GitHub, Kaggle, or specific work (if mentioned in context)
-   - Use phrases like "In my recent project..." or "While building..."
-   - Don't force it if not relevant
-
-4. **Business Value Focus**:
-   - Emphasize practical impact over pure theory
-   - Use business language: ROI, scale, production, results
-   - Show how research translates to real-world solutions
-   - Position as consultant/expert who solves problems
-
-5. **Professional Positioning**:
-   - Use confident, authoritative tone
-   - Demonstrate deep expertise
-   - Show thought leadership
-   - Subtly signal availability for opportunities
-
-6. **Industry Trends** (use search_industry_trends if helpful):
-   - Connect content to current market demands
-   - Mention pain points companies face
-   - Show awareness of hiring trends
-
-**Optimization Guidelines**:
-- Keep length 300-800 words
-- Use line breaks for readability
-- Include 1-2 emojis strategically (optional based on tone)
-- Add 3-5 relevant hashtags at the end
-- Make it scannable (use bold or bullet points if helpful)
-
-Output ONLY the optimized LinkedIn post:
-=== OPTIMIZED LINKEDIN POST ===
-[Your optimized post with SEO, hooks, portfolio mentions, and strong CTA]
+NEVER fabricate a paper, year, or percentage.
 """,
         tools=[
-            generate_seo_keywords,
-            create_engagement_hooks,
-            search_industry_trends,
+            search_semantic_scholar,
+            verify_citation_semantic_scholar,
+            search_arxiv_papers,
+            search_industry_context,
+            search_web,
+            generate_bibtex,
         ],
-        output_key="optimized_linkedin",
+        output_key="verified_research",
     )
 
 
-def create_review_agent() -> LlmAgent:
-    """Create the ReviewAgent that verifies claims and adds citations.
-
-    The ReviewAgent is responsible for:
-    - Verifying scientific accuracy
-    - Adding proper citations
-    - Checking tone and credibility
-    - Ensuring platform-appropriate formatting
-    - Final quality assurance
-
-    Returns:
-        LlmAgent configured for content review
-    """
+def create_personal_context_agent(router: ModelRouter | None = None) -> LlmAgent:
+    """Stage 2b: Retrieve author's real case studies, metrics, Voice DNA, and banned clichés."""
+    router = router or ModelRouter()
     return LlmAgent(
-        name=REVIEW_AGENT_NAME,
-        model=Gemini(model=DEFAULT_MODEL, retry_options=RETRY_CONFIG),
-        description="Reviews content for accuracy, adds citations, and ensures quality",
-        instruction="""You are a scientific content reviewer ensuring accuracy, credibility, and opportunity appeal.
+        name=PERSONAL_CONTEXT_AGENT_NAME,
+        model=router.get_model("personal_context"),
+        description="Retrieves verified personal case studies, metrics, and Voice DNA from the local knowledge base.",
+        instruction="""You are the Author's Personal Knowledge & Voice Archivist.
 
-You will receive:
-- Research findings with sources: {research_findings}
-- Generated content for all platforms: {generated_content}
-- Optimized LinkedIn post: {optimized_linkedin}
+Read the blueprint:
+{content_blueprint}
 
-Your tasks:
+Tasks:
+1. Call `retrieve_personal_evidence()` with the main topic keywords to retrieve the author's most relevant real, quantified production case studies.
+2. Call `get_voice_and_style_guide()` to load the author's Voice DNA, platform formatting constraints, and anti-AI-slop banned phrases list.
 
-1. **Verify Scientific Accuracy**:
-   - Check that claims match the research findings
-   - Ensure no overstatements or misleading interpretations
-   - Verify technical terminology is used correctly
+Return a concise **PERSONAL CONTEXT BRIEF** containing:
+- The 1-3 most relevant real case studies and their EXACT verified metrics (never inflate or alter them).
+- Key Voice DNA rules to follow.
+- The exact list of banned phrases that MUST NOT appear anywhere in the drafts.
+""",
+        tools=[retrieve_personal_evidence, get_voice_and_style_guide],
+        output_key="personal_context",
+    )
 
-2. **Add Proper Citations**:
-   - Use generate_citations() to create formatted citations from sources
-   - Add inline citations where claims reference specific papers
-   - Create a complete references section for the blog
-   - Add source links to LinkedIn and Twitter where appropriate
 
-3. **Review Quality**:
-   - Check that tone is appropriate for each platform
-   - Ensure content builds author's credibility
-   - Verify engaging hooks and calls-to-action
-   - Check formatting (headings, line breaks, character limits)
+def create_visual_asset_agent(router: ModelRouter | None = None) -> LlmAgent:
+    """Stage 2c: Generate real charts, architecture diagrams, and demo overlays."""
+    router = router or ModelRouter()
+    return LlmAgent(
+        name=VISUAL_AGENT_NAME,
+        model=router.get_model("visual"),
+        description="Renders high-resolution Matplotlib charts, architecture diagrams (.png + .mmd), and live demo overlays.",
+        instruction="""You are a Technical Data Visualization & Diagram Engineer (PaperOrchestra Plotting Agent).
 
-4. **Opportunity Analysis** (use analyze_content_for_opportunities):
-   - Score the optimized LinkedIn post for opportunity appeal
-   - Provide actionable suggestions for improvement
-   - Ensure SEO keywords are present
-   - Verify engagement hooks are strong
+Read the blueprint:
+{content_blueprint}
 
-5. **Final Polish**:
-   - Fix any grammar or style issues
-   - Ensure consistency across platforms
-   - Verify all hashtags are relevant
-   - Check that Twitter thread stays under character limits
+Tasks:
+1. **Architecture Diagram**: Call `render_architecture_diagram()` using 4-6 clear technical blocks from the blueprint. Save under `output/tmp_assets/architecture.png`.
+2. **Data Chart** (ONLY if real verified numeric series exist in the user's raw materials or blueprint): Call `render_data_chart()` saving under `output/tmp_assets/benchmark_chart.png`. NEVER invent fake benchmark numbers! If no real numeric series is available yet, skip the chart and explain why.
+3. **Live Demo Overlays**: Call `render_demo_overlays()` with 3-4 crisp lower-third cues (key metric / step label) saved under `output/tmp_assets/overlays`.
 
-Output the FINAL POLISHED CONTENT for all three platforms with citations and scores.
+Return a concise **GENERATED VISUALS MANIFEST** listing every exact file path created (`png_path`, `mermaid_path`, overlay paths) and a 1-line caption for each so channel writers can reference them accurately.
+""",
+        tools=[render_data_chart, render_architecture_diagram, render_demo_overlays],
+        output_key="generated_visuals",
+    )
 
-Format:
-=== FINAL BLOG ARTICLE ===
-[Blog with inline citations and references section]
+
+def create_fact_checker_critic(
+    channels: list[str],
+    router: ModelRouter | None = None,
+) -> LlmAgent:
+    """Stage 4a: Scientific fact-checker verifying every statistic, claim, and citation."""
+    router = router or ModelRouter()
+    draft_refs = "\n".join(
+        f"- {get_channel_plugin(ch).display_name}: {{{get_channel_plugin(ch).output_key}}}"
+        for ch in channels
+    )
+    return LlmAgent(
+        name=FACT_CHECKER_AGENT_NAME,
+        model=router.get_model("fact_checker"),
+        description="Audits all channel drafts for factual accuracy, verified citations, and unsourced statistics.",
+        instruction=f"""You are a strict Scientific Peer-Reviewer & Fact-Checker.
+
+Ground-truth sources:
+- Verified Research: {{verified_research}}
+- Verified Personal Case Studies: {{personal_context}}
+
+Channel drafts to audit:
+{draft_refs}
+
+Audit checklist:
+1. Every percentage, dollar/euro amount, latency figure, or benchmark claim MUST trace back to {{verified_research}}, {{personal_context}}, or the user's ingested raw materials. Flag ANY invented number (e.g. "slashes costs by 30%") as a BLOCKING issue.
+2. Every cited paper must have real authors and a real year (NEVER "(n.d.)" if a year exists, NEVER hallucinated paper titles).
+3. Ensure technical nuance is preserved (no exaggerated hype claims).
+
+Output a concise **FACT-CHECK REPORT**:
+- **FACT_CHECK_STATUS**: PASS or FAIL
+- **BLOCKING_ISSUES**: bullet list (or "None")
+- **SUGGESTED_FIXES**: exact replacements grounded in the verified sources.
+""",
+        tools=[],
+        output_key="fact_check_report",
+    )
+
+
+def create_editorial_critic(
+    channels: list[str],
+    router: ModelRouter | None = None,
+) -> LlmAgent:
+    """Stage 4b: Cross-family CTO / Anti-AI-Slop critic with deterministic Python linting."""
+    router = router or ModelRouter()
+    draft_refs = "\n".join(
+        f"- {get_channel_plugin(ch).display_name}: {{{get_channel_plugin(ch).output_key}}}"
+        for ch in channels
+    )
+    return LlmAgent(
+        name=EDITORIAL_CRITIC_AGENT_NAME,
+        model=router.get_model("editorial_critic"),
+        description="Skeptical CTO & social platform editor running deterministic lints and anti-AI-slop scoring.",
+        instruction=f"""You are a skeptical CTO & Senior Social Media Editor reviewing drafts for a PhD AI Engineer with 30,000 LinkedIn connections.
+
+Author Voice DNA & Banned Phrases:
+{{personal_context}}
+
+Channel drafts to audit:
+{draft_refs}
+
+MANDATORY STEP 1:
+Call `validate_deliverables_deterministic()` passing the LinkedIn post text (if present), the list of individual X tweets (if present), and the YouTube script (if present).
+
+MANDATORY STEP 2:
+Score the package out of 100 on:
+- **Anti-Slop & Voice Authenticity** (zero hype clichés, sounds like a battle-tested PhD practitioner)
+- **B2B / R&D Positioning** (speaks to CTOs, VP Data, AdTech leaders — NOT generic HR recruiters)
+- **Platform Native Craft** (LinkedIn plain text without `**`, every X tweet <= 280 chars, YouTube hook & `[VISUAL]` cues)
+
+Output a concise **EDITORIAL CRITIQUE**:
+- **DETERMINISTIC_LINT_PASSED**: True or False (exact result from tool)
+- **EDITORIAL_SCORE**: X/100
+- **BLOCKING_ISSUES**: exact list of tool violations + any tone/positioning issues
+- **IMPROVEMENTS**: concrete line-level edits.
+""",
+        tools=[validate_deliverables_deterministic],
+        output_key="editorial_critique",
+    )
+
+
+def create_refiner_agent(
+    channels: list[str],
+    router: ModelRouter | None = None,
+) -> LlmAgent:
+    """Stage 4c: Refines drafts based on both critics, builds PDF/MP4 assets, and exits loop when passing."""
+    router = router or ModelRouter()
+    draft_refs = "\n".join(
+        f"- {get_channel_plugin(ch).display_name}: {{{get_channel_plugin(ch).output_key}}}"
+        for ch in channels
+    )
+    return LlmAgent(
+        name=REFINER_AGENT_NAME,
+        model=router.get_model("refiner"),
+        description="Applies fact-check and anti-slop fixes, renders final carousel PDF & short MP4 videos, and exits loop once quality gates pass.",
+        instruction=f"""You are the Final Editorial Refiner & Media Packager.
+
+Inputs:
+- Verified Research (incl. BibTeX): {{verified_research}}
+- Generated Visuals: {{generated_visuals}}
+- Channel Drafts:
+{draft_refs}
+- Fact-Check Report: {{fact_check_report}}
+- Editorial Critique: {{editorial_critique}}
+
+Decision Logic:
+1. Check whether BOTH:
+   - `FACT_CHECK_STATUS` is `PASS` (zero unsourced numbers or hallucinated citations), AND
+   - `DETERMINISTIC_LINT_PASSED` is `True` AND `EDITORIAL_SCORE` >= 85.
+2. **If NOT passed yet**:
+   - Rewrite ONLY the failing parts cleanly (strip any `**` from LinkedIn, shorten tweets > 280 chars, remove banned clichés/placeholders, fix unsourced claims).
+   - Output the full updated deliverables clearly delimited with the markers below so the next iteration verifies them. Do NOT call `exit_loop` yet.
+3. **If PASSED (or after applying clean final fixes when only minor warnings remain)**:
+   - If LinkedIn carousel slides were drafted, call `render_linkedin_carousel_pdf()` saving to `output/tmp_assets/linkedin_carousel.pdf` (passing any generated chart PNG paths).
+   - If a video storyboard was drafted for X / YouTube, call `render_short_explainer_video()` for `16:9` (`output/tmp_assets/demo_explainer_16x9.mp4`) and `9:16` (`output/tmp_assets/short_9x16.mp4`).
+   - Call `exit_loop()` to finish the refinement loop.
+   - Output the COMPLETE, READY-TO-PUBLISH bundle using these EXACT section headers (omit channels not requested):
 
 === FINAL LINKEDIN POST ===
-[Use the optimized LinkedIn post, with any final improvements]
+[Clean plain-text LinkedIn post — ZERO Markdown bold **, ZERO placeholders]
 
-=== FINAL TWITTER THREAD ===
-[Twitter thread with relevant citations]
+=== FINAL X THREAD ===
+[Clean numbered tweets, each <= 280 chars]
 
-=== CITATIONS ===
-[Complete formatted citations for all sources]
+=== FINAL X STANDALONE POSTS ===
+[2 short standalone posts]
 
-=== OPPORTUNITY ANALYSIS ===
-**Opportunity Score**: X/100
-**SEO Score**: X/100
-**Engagement Score**: X/100
-**Suggestions**: [Key recommendations for improvement]
+=== FINAL YOUTUBE PACKAGE ===
+[CTR titles, thumbnail briefs, long script with [VISUAL] cues, 60s Short script, live demo shotlist, SEO description]
+
+=== FINAL NEWSLETTER ===
+[Only if newsletter channel was requested]
+
+=== BIBTEX REFERENCES ===
+[Verified BibTeX entries]
+
+=== GENERATED MEDIA MANIFEST ===
+[Exact file paths to PNG figures, PDF carousel, MP4 videos, SRT subtitles]
+
+=== QUALITY REPORT ===
+[Final Fact-Check status, Editorial score, models/checks summary]
 """,
-        tools=[generate_citations, analyze_content_for_opportunities],
+        tools=[
+            render_linkedin_carousel_pdf,
+            render_short_explainer_video,
+            exit_loop,
+        ],
         output_key="final_content",
     )
 
 
-def create_content_generation_pipeline() -> SequentialAgent:
-    """Create the complete content generation pipeline.
+def create_content_generation_pipeline(
+    channels: list[str] | None = None,
+    model_overrides: dict[str, str] | None = None,
+) -> SequentialAgent:
+    """Create the v2 Hybrid Multi-LLM ADK Pipeline.
 
-    The pipeline runs agents in sequence:
-    1. ResearchAgent: Find papers and trends
-    2. StrategyAgent: Plan content approach
-    3. ContentGeneratorAgent: Create drafts
-    4. LinkedInOptimizationAgent: Optimize LinkedIn for opportunities
-    5. ReviewAgent: Verify, polish, and score
+    Pipeline structure:
+        Stage 1: OutlineBlueprintAgent (Sequential)
+        Stage 2: ParallelEnrichmentStage (HybridLiterature + PersonalEvidence + VisualAsset)
+        Stage 3: ParallelChannelWritersStage (LinkedIn + X + YouTube [+ Newsletter], Multi-LLM)
+        Stage 4: QualityRefinementLoop (LoopAgent, max 3 turns: ParallelCritics -> ContentRefiner)
 
-    Design decision: We use SequentialAgent (not ParallelAgent) because each agent
-    depends on the outputs of previous agents. The state flows linearly through
-    the pipeline via the output_key/placeholder pattern, where each agent's
-    output_key becomes available as {placeholder} for subsequent agents.
-
-    The 5-agent architecture balances specialization with maintainability:
-    - Research: Academic credibility through paper sources
-    - Strategy: Professional positioning and audience targeting
-    - Content: Platform-specific format optimization
-    - LinkedIn: Opportunity generation (SEO, engagement, portfolio)
-    - Review: Quality assurance and scoring
+    Args:
+        channels: List of target channel keys (default: ``["linkedin", "x", "youtube"]``).
+        model_overrides: Optional per-role model overrides for ``ModelRouter``.
 
     Returns:
-        SequentialAgent orchestrating the complete workflow
+        Configured ADK ``SequentialAgent`` root pipeline.
     """
-    # Create all specialized agents
-    research_agent = create_research_agent()
-    strategy_agent = create_strategy_agent()
-    content_agent = create_content_generator_agent()
-    linkedin_optimizer = create_linkedin_optimization_agent()
-    review_agent = create_review_agent()
+    active_channels = [get_channel_plugin(c).key for c in (channels or DEFAULT_CHANNELS)]
+    # Deduplicate preserving order
+    active_channels = list(dict.fromkeys(active_channels))
 
-    # Design decision: Order matters! Each agent builds on previous outputs.
-    # Do not reorder without updating placeholder references in instructions.
+    router = ModelRouter(overrides=model_overrides)
+
+    # Stage 1: Outline & Visual Blueprint
+    outline_agent = create_outline_blueprint_agent(router)
+
+    # Stage 2: Parallel Enrichment (Literature + Personal Evidence + Visuals)
+    enrichment_stage = ParallelAgent(
+        name="ParallelEnrichmentStage",
+        description="Runs verified literature search, personal case-study retrieval, and visual generation in parallel.",
+        sub_agents=[
+            create_literature_agent(router),
+            create_personal_context_agent(router),
+            create_visual_asset_agent(router),
+        ],
+    )
+
+    # Stage 3: Parallel Multi-LLM Channel Writers
+    channel_writers = [create_channel_writer_agent(ch, router) for ch in active_channels]
+    writers_stage = ParallelAgent(
+        name="ParallelChannelWritersStage",
+        description="Generates native deliverables for each target social channel in parallel using optimal LLMs.",
+        sub_agents=channel_writers,
+    )
+
+    # Stage 4: Iterative Simulated Peer-Review & Anti-AI-Slop Loop
+    critics_stage = ParallelAgent(
+        name="ParallelCriticsStage",
+        description="Runs scientific fact-checking and cross-family anti-AI-slop editorial critique concurrently.",
+        sub_agents=[
+            create_fact_checker_critic(active_channels, router),
+            create_editorial_critic(active_channels, router),
+        ],
+    )
+    refiner_agent = create_refiner_agent(active_channels, router)
+
+    refinement_loop = LoopAgent(
+        name="QualityRefinementLoop",
+        description="Iteratively refines drafts until fact-checking, anti-slop, and formatting gates pass.",
+        sub_agents=[critics_stage, refiner_agent],
+        max_iterations=MAX_REFINEMENT_ITERATIONS,
+    )
+
     return SequentialAgent(
         name=ROOT_AGENT_NAME,
-        description="Complete scientific content generation system with professional opportunity optimization",
+        description="Multi-LLM Research-to-Brand pipeline (LinkedIn, X, YouTube) with PaperOrchestra ingestion and peer-review loop.",
         sub_agents=[
-            research_agent,
-            strategy_agent,
-            content_agent,
-            linkedin_optimizer,
-            review_agent,
+            outline_agent,
+            enrichment_stage,
+            writers_stage,
+            refinement_loop,
         ],
     )

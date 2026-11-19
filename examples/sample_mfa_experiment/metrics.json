@@ -1,0 +1,10 @@
+{
+  "experiment_name": "mfa_hybrid_cascade_benchmark",
+  "weekly_volume_pages": 15000000,
+  "cost_target_eur_per_page": 0.001,
+  "comparison": [
+    {"architecture": "Rules Only", "mfa_recall_pct": 51.2, "cost_eur_per_1k": 0.05, "p95_latency_ms": 12},
+    {"architecture": "Frontier LLM Only", "mfa_recall_pct": 93.4, "cost_eur_per_1k": 14.8, "p95_latency_ms": 1850},
+    {"architecture": "Hybrid Cascade", "mfa_recall_pct": 94.7, "cost_eur_per_1k": 0.72, "p95_latency_ms": 68}
+  ]
+}

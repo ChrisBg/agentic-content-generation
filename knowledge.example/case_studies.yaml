@@ -1,0 +1,20 @@
+# Generic example Personal Knowledge Base — copy to ./knowledge/ and customize
+case_studies:
+  - id: production-ml-cost
+    title: High-Throughput Low-Cost Content Classification Pipeline
+    domain: Production AI / NLP
+    tags: [nlp, llm, moderation, mlops, inference, cost, scale, production]
+    summary: Built a production NLP classification pipeline processing millions of items weekly with strict unit-cost discipline.
+    metrics:
+      - "10M+ items classified weekly"
+      - "Unit inference cost < €0.001 per item"
+    takeaway: "Production AI succeeds on unit economics and latency budgets, not just leaderboard accuracy."
+
+  - id: fraud-detection-hybrid
+    title: Hybrid ML + Statistical Rules Fraud Detection
+    domain: Fraud Detection / Anomaly Detection
+    tags: [fraud, adtech, anomaly, xgboost, econometrics, rules, production]
+    summary: Combined supervised ML models with statistical rules to close detection blind spots in adversarial traffic.
+    metrics:
+      - "+80% detection coverage improvement"
+    takeaway: "In adversarial environments, hybrid ML + domain statistics beats black-box models alone."

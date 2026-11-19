@@ -1,14 +1,26 @@
-"""Gradio web interface for the Scientific Content Generation Agent."""
+"""Gradio UI v2 for the Research-to-Brand Multi-LLM Agent System (LinkedIn, X, YouTube)."""
 
-import asyncio
+from __future__ import annotations
+
 import json
-from typing import Any, Dict, List, Optional, Tuple
+import logging
+import os
+from pathlib import Path
+from typing import Any
 
 import gradio as gr
 import pandas as pd
 
 from main import run_content_generation
-from src.config import CITATION_STYLE, DEFAULT_MODEL, MAX_PAPERS_PER_SEARCH, SUPPORTED_PLATFORMS
+from src.config import DEFAULT_OUTPUT_DIR, ROLE_MODEL_PREFERENCES
+from src.exporter import zip_bundle
+from src.knowledge_base import (
+    init_knowledge_base,
+    load_case_studies,
+    load_voice_dna,
+    resolve_knowledge_dir,
+)
+from src.llm_router import ModelRouter
 from src.profile import (
     DEFAULT_PROFILE,
     PROFILE_PATH,
@@ -16,864 +28,615 @@ from src.profile import (
     load_user_profile,
     save_profile_to_yaml,
 )
-from src.session_manager import delete_session, get_session_info, list_sessions
+from src.security import get_safe_output_root, resolve_safe_path
+from src.session_manager import delete_session, list_sessions
+
+logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# Tab 1: Content Generation
-# ============================================================================
-
-
-async def async_generate_with_progress(
-    topic: str,
-    platforms: List[str],
-    tone: str,
-    audience: str,
-    session_id: str,
-    progress: gr.Progress = gr.Progress(),
-) -> str:
-    """Generate content with progress tracking.
-
-    Args:
-        topic: Research topic
-        platforms: List of platforms (Blog, LinkedIn, Twitter)
-        tone: Content tone
-        audience: Target audience
-        session_id: Optional session ID to resume
-        progress: Gradio progress tracker
-
-    Returns:
-        Generated content as formatted string
-    """
-    try:
-        # Validate inputs
-        if not topic or not topic.strip():
-            return "❌ Error: Please enter a topic."
-
-        if not platforms:
-            return "❌ Error: Please select at least one platform."
-
-        # Convert UI platform names to internal format
-        platform_map = {"Blog": "blog", "LinkedIn": "linkedin", "Twitter": "twitter"}
-        platforms_internal = [platform_map[p] for p in platforms]
-
-        # Build preferences
-        preferences = {
-            "platforms": platforms_internal,
-            "tone": tone,
-            "target_audience": audience if audience.strip() else "researchers and professionals",
-        }
-
-        # Use session ID if provided
-        session = session_id.strip() if session_id and session_id.strip() else None
-
-        # Progress tracking with fixed milestones
-        progress(0.0, desc="🚀 Initializing agent pipeline...")
-        await asyncio.sleep(0.5)  # Brief pause for UI feedback
-
-        progress(0.1, desc="🔬 ResearchAgent: Searching academic papers and trends...")
-        # Run the actual content generation (2-5 minutes)
-        # We can't track real progress without hooking into ADK events, so we'll use milestones
-
-        # Start the generation in a separate task so we can update progress
-        generation_task = asyncio.create_task(run_content_generation(topic, preferences, session))
-
-        # Simulate progress while generation runs
-        # These are approximate milestones based on agent pipeline
-        milestones = [
-            (0.2, "🎯 StrategyAgent: Planning content strategy..."),
-            (0.4, "✍️ ContentGeneratorAgent: Creating content..."),
-            (0.7, "🚀 LinkedInOptimizationAgent: Optimizing for opportunities..."),
-            (0.85, "✅ ReviewAgent: Final review and citations..."),
-        ]
-
-        # Update progress while waiting for completion
-        for milestone_progress, desc in milestones:
-            # Check if generation is complete
-            if generation_task.done():
-                break
-            progress(milestone_progress, desc=desc)
-            # Wait a bit before next milestone (total ~30 seconds for progress updates)
-            await asyncio.sleep(7)
-
-        # Wait for generation to complete
-        result = await generation_task
-
-        progress(1.0, desc="✅ Generation complete!")
-
-        # Format the result nicely
-        if result and isinstance(result, str):
-            return f"""# Content Generation Complete! 🎉
-
-{result}
-
----
-💾 Content saved to output directory
-🔄 Session ID: {session or "New session created"}
-"""
-        else:
-            return "✅ Content generation completed. Check the logs for details."
-
-    except Exception as e:
-        error_msg = f"❌ Error during content generation: {str(e)}"
-        print(error_msg)
-        import traceback
-
-        traceback.print_exc()
-        return error_msg
-
-
-def generate_content_sync(
-    topic: str, platforms: List[str], tone: str, audience: str, session_id: str
-) -> str:
-    """Synchronous wrapper for async content generation.
-
-    This is needed because Gradio requires sync functions unless we use .then() chaining.
-    """
-    return asyncio.run(async_generate_with_progress(topic, platforms, tone, audience, session_id))
-
-
-# ============================================================================
-# Tab 2: Profile Editor
-# ============================================================================
-
-
-def load_profile_ui() -> Tuple:
-    """Load current profile for form population.
-
-    Returns:
-        Tuple of all profile field values in form order
-    """
-    try:
-        profile = load_user_profile(validate=False)
-        return (
-            profile.name,
-            profile.target_role,
-            ", ".join(profile.expertise_areas),
-            ", ".join(profile.content_goals),
-            profile.region,
-            ", ".join(profile.languages),
-            ", ".join(profile.target_industries),
-            profile.github_username,
-            profile.linkedin_url,
-            profile.portfolio_url,
-            profile.kaggle_username,
-            json.dumps(profile.notable_projects, indent=2),
-            ", ".join(profile.primary_skills),
-            profile.content_tone,
-            profile.use_emojis,
-            profile.posting_frequency,
-            profile.unique_value_proposition,
-            ", ".join(profile.key_differentiators),
-            "✅ Profile loaded successfully!",
+def _routing_dataframe(overrides: dict[str, str] | None = None) -> pd.DataFrame:
+    router = ModelRouter(overrides=overrides)
+    rows = []
+    for role, info in router.get_active_routing_table().items():
+        rows.append(
+            {
+                "Role": role,
+                "Provider": info["provider"],
+                "Active Model": info["model"],
+                "Status": "Fallback" if info["is_fallback"] else info["reason"],
+            }
         )
-    except Exception as e:
-        return (
-            DEFAULT_PROFILE.name,
-            DEFAULT_PROFILE.target_role,
-            ", ".join(DEFAULT_PROFILE.expertise_areas),
-            ", ".join(DEFAULT_PROFILE.content_goals),
-            DEFAULT_PROFILE.region,
-            ", ".join(DEFAULT_PROFILE.languages),
-            ", ".join(DEFAULT_PROFILE.target_industries),
-            DEFAULT_PROFILE.github_username,
-            DEFAULT_PROFILE.linkedin_url,
-            DEFAULT_PROFILE.portfolio_url,
-            DEFAULT_PROFILE.kaggle_username,
-            json.dumps(DEFAULT_PROFILE.notable_projects, indent=2),
-            ", ".join(DEFAULT_PROFILE.primary_skills),
-            DEFAULT_PROFILE.content_tone,
-            DEFAULT_PROFILE.use_emojis,
-            DEFAULT_PROFILE.posting_frequency,
-            DEFAULT_PROFILE.unique_value_proposition,
-            ", ".join(DEFAULT_PROFILE.key_differentiators),
-            f"⚠️ Error loading profile: {str(e)}. Showing defaults.",
-        )
+    return pd.DataFrame(rows)
 
 
-def validate_profile_ui(
-    name: str,
-    target_role: str,
-    expertise_areas: str,
-    content_goals: str,
-    region: str,
-    languages: str,
-    target_industries: str,
-    github: str,
-    linkedin: str,
-    portfolio: str,
-    kaggle: str,
-    projects_json: str,
-    skills: str,
-    tone: str,
-    emojis: bool,
-    frequency: str,
-    uvp: str,
-    differentiators: str,
-) -> str:
-    """Validate profile fields without saving.
+def _provider_status_markdown() -> str:
+    status = ModelRouter().get_provider_status()
+    badges = [
+        f"- **{k.upper()}**: {'Configured' if v else 'Not set (auto-fallback to Gemini)'}"
+        for k, v in status.items()
+    ]
+    return "### API Providers Status\n" + "\n".join(badges)
 
-    Returns:
-        Validation result message
-    """
-    try:
-        # Parse list fields
-        expertise_list = [x.strip() for x in expertise_areas.split(",") if x.strip()]
-        goals_list = [x.strip() for x in content_goals.split(",") if x.strip()]
-        languages_list = [x.strip() for x in languages.split(",") if x.strip()]
-        industries_list = [x.strip() for x in target_industries.split(",") if x.strip()]
-        skills_list = [x.strip() for x in skills.split(",") if x.strip()]
-        diff_list = [x.strip() for x in differentiators.split(",") if x.strip()]
 
-        # Parse projects JSON
+def _list_exported_bundles() -> pd.DataFrame:
+    if not DEFAULT_OUTPUT_DIR.exists():
+        return pd.DataFrame(columns=["Bundle", "Topic", "Channels", "Language", "ZIP"])
+    rows = []
+    for meta_file in sorted(DEFAULT_OUTPUT_DIR.glob("*/bundle.json"), reverse=True)[:30]:
         try:
-            projects = json.loads(projects_json) if projects_json.strip() else []
-        except json.JSONDecodeError as e:
-            return f"❌ Invalid JSON in Notable Projects: {str(e)}"
-
-        # Create profile object
-        profile = UserProfile(
-            name=name,
-            target_role=target_role,
-            expertise_areas=expertise_list,
-            content_goals=goals_list,
-            region=region,
-            languages=languages_list,
-            target_industries=industries_list,
-            github_username=github,
-            linkedin_url=linkedin,
-            portfolio_url=portfolio,
-            kaggle_username=kaggle,
-            notable_projects=projects,
-            primary_skills=skills_list,
-            content_tone=tone,
-            use_emojis=emojis,
-            posting_frequency=frequency,
-            unique_value_proposition=uvp,
-            key_differentiators=diff_list,
-        )
-
-        # Validate
-        validation = profile.validate()
-
-        if validation["errors"]:
-            error_msg = "❌ Validation Errors:\n" + "\n".join(
-                f"  • {err}" for err in validation["errors"]
-            )
-            if validation["warnings"]:
-                error_msg += "\n\n⚠️ Warnings:\n" + "\n".join(
-                    f"  • {warn}" for warn in validation["warnings"]
-                )
-            return error_msg
-
-        if validation["warnings"]:
-            return "⚠️ Validation Warnings:\n" + "\n".join(
-                f"  • {warn}" for warn in validation["warnings"]
-            )
-
-        return "✅ Profile is valid!"
-
-    except Exception as e:
-        return f"❌ Validation error: {str(e)}"
-
-
-def save_profile_ui(
-    name: str,
-    target_role: str,
-    expertise_areas: str,
-    content_goals: str,
-    region: str,
-    languages: str,
-    target_industries: str,
-    github: str,
-    linkedin: str,
-    portfolio: str,
-    kaggle: str,
-    projects_json: str,
-    skills: str,
-    tone: str,
-    emojis: bool,
-    frequency: str,
-    uvp: str,
-    differentiators: str,
-) -> str:
-    """Save profile to YAML file.
-
-    Returns:
-        Save result message
-    """
-    try:
-        # Parse list fields
-        expertise_list = [x.strip() for x in expertise_areas.split(",") if x.strip()]
-        goals_list = [x.strip() for x in content_goals.split(",") if x.strip()]
-        languages_list = [x.strip() for x in languages.split(",") if x.strip()]
-        industries_list = [x.strip() for x in target_industries.split(",") if x.strip()]
-        skills_list = [x.strip() for x in skills.split(",") if x.strip()]
-        diff_list = [x.strip() for x in differentiators.split(",") if x.strip()]
-
-        # Parse projects JSON
-        try:
-            projects = json.loads(projects_json) if projects_json.strip() else []
-        except json.JSONDecodeError as e:
-            return f"❌ Invalid JSON in Notable Projects: {str(e)}"
-
-        # Create profile object
-        profile = UserProfile(
-            name=name,
-            target_role=target_role,
-            expertise_areas=expertise_list,
-            content_goals=goals_list,
-            region=region,
-            languages=languages_list,
-            target_industries=industries_list,
-            github_username=github,
-            linkedin_url=linkedin,
-            portfolio_url=portfolio,
-            kaggle_username=kaggle,
-            notable_projects=projects,
-            primary_skills=skills_list,
-            content_tone=tone,
-            use_emojis=emojis,
-            posting_frequency=frequency,
-            unique_value_proposition=uvp,
-            key_differentiators=diff_list,
-        )
-
-        # Validate before saving
-        validation = profile.validate()
-        if validation["errors"]:
-            return "❌ Cannot save profile with errors:\n" + "\n".join(
-                f"  • {err}" for err in validation["errors"]
-            )
-
-        # Save to YAML
-        save_profile_to_yaml(profile, PROFILE_PATH)
-
-        msg = f"✅ Profile saved to {PROFILE_PATH}"
-        if validation["warnings"]:
-            msg += "\n\n⚠️ Warnings:\n" + "\n".join(f"  • {warn}" for warn in validation["warnings"])
-        return msg
-
-    except Exception as e:
-        return f"❌ Error saving profile: {str(e)}"
-
-
-# ============================================================================
-# Tab 3: Session History
-# ============================================================================
-
-
-def list_sessions_ui() -> pd.DataFrame:
-    """List all sessions as a DataFrame.
-
-    Returns:
-        DataFrame with session information
-    """
-    try:
-        sessions = list_sessions()
-        if not sessions:
-            return pd.DataFrame(columns=["Session ID", "User", "Messages", "Last Updated"])
-
-        df = pd.DataFrame(
-            [
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            bundle_dir = meta_file.parent
+            zip_file = bundle_dir.parent / f"{bundle_dir.name}.zip"
+            rows.append(
                 {
-                    "Session ID": s["session_id"],
-                    "User": s["user_id"],
-                    "Messages": s["message_count"],
-                    "Last Updated": s["updated_at"],
+                    "Bundle": bundle_dir.name,
+                    "Topic": meta.get("topic", ""),
+                    "Channels": ", ".join(meta.get("channels", [])),
+                    "Language": meta.get("language", ""),
+                    "ZIP": str(zip_file) if zip_file.exists() else "",
                 }
-                for s in sessions
-            ]
+            )
+        except Exception as exc:
+            logger.warning("Skipping unreadable bundle metadata %s: %s", meta_file, exc)
+            continue
+    if not rows:
+        return pd.DataFrame(columns=["Bundle", "Topic", "Channels", "Language", "ZIP"])
+    return pd.DataFrame(rows)
+
+
+async def generate_studio_bundle(
+    topic: str,
+    human_seed: str,
+    uploaded_files: list[str] | None,
+    channels_ui: list[str],
+    language: str,
+    session_id: str,
+    override_linkedin: str,
+    override_x: str,
+    override_youtube: str,
+    override_critic: str,
+    progress: gr.Progress = gr.Progress(),  # noqa: B008
+) -> tuple[Any, ...]:
+    """Run the ADK v2 pipeline with real-time event progress and populate human review tabs."""
+    if not topic or not topic.strip():
+        return (
+            "Please enter a topic (or upload PaperOrchestra materials with a topic).",
+            "",
+            "",
+            "",
+            "",
+            "",
+            [],
+            None,
+            None,
+            None,
+            None,
+            "",
         )
-        return df
-    except Exception as e:
-        print(f"Error listing sessions: {e}")
-        return pd.DataFrame(columns=["Session ID", "User", "Messages", "Last Updated"])
 
+    channel_map = {
+        "LinkedIn": "linkedin",
+        "X (Twitter)": "x",
+        "YouTube": "youtube",
+        "Newsletter": "newsletter",
+    }
+    selected_channels = [channel_map[c] for c in channels_ui if c in channel_map]
+    if not selected_channels:
+        selected_channels = ["linkedin", "x", "youtube"]
 
-def get_session_details_ui(session_id: str) -> str:
-    """Get detailed information about a session.
+    overrides = {
+        k: v.strip()
+        for k, v in {
+            "linkedin": override_linkedin or "",
+            "x": override_x or "",
+            "youtube": override_youtube or "",
+            "editorial_critic": override_critic or "",
+        }.items()
+        if v and v.strip()
+    }
 
-    Args:
-        session_id: Session ID to retrieve
+    input_paths = [Path(f) for f in (uploaded_files or []) if f]
 
-    Returns:
-        Formatted session details or error message
-    """
-    if not session_id or not session_id.strip():
-        return "Please select a session from the table."
-
-    try:
-        info = get_session_info(session_id.strip())
-        if not info:
-            return f"❌ Session not found: {session_id}"
-
-        # Format the information nicely
-        details = f"""# Session Details
-
-**Session ID**: {info["session_id"]}
-**User**: {info["user_id"]}
-**Created**: {info["created_at"]}
-**Last Updated**: {info["updated_at"]}
-**Message Count**: {info["message_count"]}
-
-## Messages
-
-"""
-        if info.get("messages"):
-            for i, msg in enumerate(info["messages"], 1):
-                details += f"### Message {i}\n```\n{msg}\n```\n\n"
-        else:
-            details += "*No messages in this session*\n"
-
-        return details
-
-    except Exception as e:
-        return f"❌ Error retrieving session: {str(e)}"
-
-
-def delete_session_ui(session_id: str) -> Tuple[pd.DataFrame, str]:
-    """Delete a session.
-
-    Args:
-        session_id: Session ID to delete
-
-    Returns:
-        Tuple of (updated sessions DataFrame, status message)
-    """
-    if not session_id or not session_id.strip():
-        return list_sessions_ui(), "Please select a session to delete."
+    def _progress_cb(frac: float, msg: str) -> None:
+        progress(frac, desc=msg)
 
     try:
-        delete_session(session_id.strip())
-        return list_sessions_ui(), f"✅ Session deleted: {session_id}"
-    except Exception as e:
-        return list_sessions_ui(), f"❌ Error deleting session: {str(e)}"
+        result = await run_content_generation(
+            topic=topic.strip(),
+            preferences={"channels": selected_channels, "language": language},
+            session_id=session_id.strip() or None,
+            human_seed=human_seed or "",
+            input_paths=input_paths,
+            model_overrides=overrides or None,
+            on_progress=_progress_cb,
+        )
+    except Exception as exc:
+        return (
+            f"Generation failed: {exc}",
+            "",
+            "",
+            "",
+            "",
+            "",
+            [],
+            None,
+            None,
+            None,
+            None,
+            "",
+        )
+
+    sections = result.get("sections", {})
+    files = result.get("files", {})
+
+    linkedin_txt = sections.get("linkedin", "")
+    x_txt = "\n\n---\n\n".join(
+        p for p in [sections.get("x_thread", ""), sections.get("x_standalone", "")] if p
+    )
+    youtube_txt = sections.get("youtube", "")
+    bibtex_txt = sections.get("bibtex", "")
+    quality_txt = sections.get("quality_report", "") or sections.get("raw_output", "")
+
+    figures = [p for p in files.get("figures", []) if p.endswith(".png") and Path(p).exists()]
+    carousel_pdf = files.get("linkedin_carousel_pdf")
+    videos = [p for p in files.get("videos", []) if p.endswith(".mp4") and Path(p).exists()]
+    video_16x9 = next((v for v in videos if "16x9" in Path(v).name), videos[0] if videos else None)
+    video_9x16 = next((v for v in videos if "9x16" in Path(v).name), None)
+
+    status_msg = (
+        f"Bundle ready!\n"
+        f"- Directory: {result['bundle_dir']}\n"
+        f"- Session ID: {result['session_id']}\n"
+        f"- Figures: {len(figures)} | Videos: {len(videos)}"
+    )
+
+    return (
+        status_msg,
+        linkedin_txt,
+        x_txt,
+        youtube_txt,
+        bibtex_txt,
+        quality_txt,
+        figures,
+        carousel_pdf,
+        video_16x9,
+        video_9x16,
+        result.get("zip_path"),
+        result.get("bundle_dir", ""),
+    )
 
 
-# ============================================================================
-# Tab 4: Settings
-# ============================================================================
+def save_human_edits(
+    bundle_dir_str: str,
+    linkedin_text: str,
+    x_text: str,
+    youtube_text: str,
+) -> tuple[str, str | None]:
+    """Persist human edits inside the sandboxed output directory and refresh the ZIP archive."""
+    if not bundle_dir_str:
+        return "No active bundle directory to save.", None
+
+    try:
+        bundle_dir = resolve_safe_path(bundle_dir_str, get_safe_output_root(), must_exist=True)
+    except (PermissionError, ValueError, FileNotFoundError) as exc:
+        return f"Blocked invalid bundle path: {exc}", None
+
+    if linkedin_text.strip():
+        (bundle_dir / "linkedin_post.txt").write_text(
+            linkedin_text.strip() + "\n", encoding="utf-8"
+        )
+    if x_text.strip():
+        (bundle_dir / "x_thread.md").write_text(x_text.strip() + "\n", encoding="utf-8")
+    if youtube_text.strip():
+        (bundle_dir / "youtube_package.md").write_text(
+            youtube_text.strip() + "\n", encoding="utf-8"
+        )
+
+    new_zip = zip_bundle(bundle_dir)
+    return f"Human edits saved and ZIP refreshed: {new_zip.name}", str(new_zip)
 
 
-def save_settings_ui(api_key: str, model: str, max_papers: int, citation_style: str) -> str:
-    """Save settings (placeholder - would need to update config).
-
-    Args:
-        api_key: Google API key
-        model: Model name
-        max_papers: Max papers to search
-        citation_style: Citation style
-
-    Returns:
-        Status message
-    """
-    # Note: This is a simplified version. In production, you'd want to:
-    # 1. Update .env file for API key
-    # 2. Update config file for other settings
-    # 3. Or use a dedicated settings storage mechanism
-
-    messages = []
-
-    if api_key and api_key.strip():
-        messages.append("⚠️ API key changes require restart to take effect")
-
-    if model != DEFAULT_MODEL:
-        messages.append(f"⚠️ Model changed to {model} (requires restart)")
-
-    if max_papers != MAX_PAPERS_PER_SEARCH:
-        messages.append(f"⚠️ Max papers changed to {max_papers} (requires restart)")
-
-    if citation_style != CITATION_STYLE:
-        messages.append(f"⚠️ Citation style changed to {citation_style} (requires restart)")
-
-    if not messages:
-        return "ℹ️ No settings changes detected"
-
-    return "\n".join(messages) + "\n\n💡 Settings saved (restart app to apply)"
+def save_voice_dna_ui(voice_text: str) -> str:
+    """Save edited Voice DNA markdown to local knowledge/voice_dna.md."""
+    kb_dir = init_knowledge_base()
+    (kb_dir / "voice_dna.md").write_text(voice_text, encoding="utf-8")
+    return f"Saved Voice DNA to {kb_dir / 'voice_dna.md'}"
 
 
-# ============================================================================
-# Main UI Creation
-# ============================================================================
+def load_profile_fields() -> tuple[Any, ...]:
+    profile = load_user_profile(validate=False)
+    return (
+        profile.name,
+        profile.target_role,
+        ", ".join(profile.expertise_areas),
+        "\n".join(profile.editorial_pillars),
+        ", ".join(profile.target_personas),
+        "\n".join(profile.business_offers),
+        profile.unique_value_proposition,
+        profile.linkedin_url,
+        profile.github_username,
+        profile.x_handle,
+        profile.youtube_channel,
+        load_voice_dna(),
+        json.dumps(load_case_studies(), indent=2, ensure_ascii=False),
+    )
+
+
+def save_profile_fields(
+    name: str,
+    role: str,
+    expertise: str,
+    pillars: str,
+    personas: str,
+    offers: str,
+    uvp: str,
+    linkedin: str,
+    github: str,
+    x_handle: str,
+    youtube: str,
+) -> str:
+    current = load_user_profile(validate=False)
+    updated = UserProfile(
+        name=name.strip() or DEFAULT_PROFILE.name,
+        target_role=role.strip() or DEFAULT_PROFILE.target_role,
+        expertise_areas=[x.strip() for x in expertise.split(",") if x.strip()],
+        editorial_pillars=[x.strip() for x in pillars.splitlines() if x.strip()],
+        target_personas=[x.strip() for x in personas.split(",") if x.strip()],
+        business_offers=[x.strip() for x in offers.splitlines() if x.strip()],
+        unique_value_proposition=uvp.strip(),
+        linkedin_url=linkedin.strip(),
+        github_username=github.strip(),
+        x_handle=x_handle.strip(),
+        youtube_channel=youtube.strip(),
+        notable_projects=current.notable_projects,
+        primary_skills=current.primary_skills,
+        banned_phrases=current.banned_phrases,
+    )
+    validation = updated.validate()
+    if validation["errors"]:
+        return "Validation errors:\n" + "\n".join(validation["errors"])
+    save_profile_to_yaml(updated, PROFILE_PATH)
+    return f"Profile saved to {PROFILE_PATH}"
+
+
+def list_sessions_df() -> pd.DataFrame:
+    sessions = list_sessions()
+    if not sessions:
+        return pd.DataFrame(columns=["Session ID", "User", "Messages", "Updated"])
+    return pd.DataFrame(
+        [
+            {
+                "Session ID": s["session_id"],
+                "User": s.get("user_id", ""),
+                "Messages": s.get("message_count", 0),
+                "Updated": s.get("updated_at", ""),
+            }
+            for s in sessions
+        ]
+    )
+
+
+def delete_session_ui(session_id: str) -> tuple[pd.DataFrame, str]:
+    if not session_id.strip():
+        return list_sessions_df(), "Enter a Session ID to delete."
+    res = delete_session(session_id.strip())
+    return list_sessions_df(), res["message"]
 
 
 def create_ui() -> gr.Blocks:
-    """Create the main Gradio UI.
-
-    Returns:
-        Gradio Blocks application
-    """
-    with gr.Blocks(title="Scientific Content Generation Agent") as app:
+    """Build the Gradio v2 web studio."""
+    with gr.Blocks(title="Research-to-Brand Multi-LLM Studio v2") as app:
         gr.Markdown(
             """
-        # 🔬 Scientific Content Generation Agent
-
-        Generate research-backed content for blogs, LinkedIn, and Twitter using AI-powered multi-agent system.
-        """
+# Research-to-Brand Multi-LLM Studio v2
+*PaperOrchestra Ingestion + Semantic Scholar Verification + Multi-LLM Channel Writers (LinkedIn, X, YouTube) + Anti-AI-Slop Loop*
+"""
         )
 
+        active_bundle_dir = gr.State("")
+
         with gr.Tabs():
-            # ===== TAB 1: GENERATE CONTENT =====
-            with gr.Tab("🚀 Generate Content"):
-                gr.Markdown("### Create Scientific Content")
+            # ===== TAB 1: CONTENT STUDIO =====
+            with gr.Tab("Content Studio"), gr.Row():
+                with gr.Column(scale=1):
+                    topic_in = gr.Textbox(
+                        label="Topic / Research Subject",
+                        placeholder="e.g. Agentic MFA & Ad Fraud Detection under 0.001 EUR/page",
+                        lines=2,
+                    )
+                    seed_in = gr.Textbox(
+                        label="Human Seed (Your contrarian take / production experience)",
+                        placeholder="Write 2-3 bullet points of your real opinion so the content never reads like generic AI...",
+                        lines=4,
+                    )
+                    files_in = gr.File(
+                        label="PaperOrchestra Raw Materials (.tex, .bib, .ipynb, .pdf, .json, .csv, .md)",
+                        file_count="multiple",
+                        type="filepath",
+                    )
+                    channels_in = gr.CheckboxGroup(
+                        choices=["LinkedIn", "X (Twitter)", "YouTube", "Newsletter"],
+                        value=["LinkedIn", "X (Twitter)", "YouTube"],
+                        label="Target Channels",
+                    )
+                    with gr.Row():
+                        lang_in = gr.Radio(
+                            choices=["fr", "en", "both"],
+                            value="fr",
+                            label="Language",
+                        )
+                        session_in = gr.Textbox(
+                            label="Resume Session ID (optional)",
+                            placeholder="Leave empty for new session",
+                        )
+                    generate_btn = gr.Button(
+                        "Generate Multi-Channel Bundle", variant="primary", size="lg"
+                    )
+                    status_box = gr.Textbox(label="Pipeline Status", lines=4, interactive=False)
+                    zip_out = gr.File(label="Download Ready-to-Post Pack (.zip)")
 
-                with gr.Row():
-                    with gr.Column():
-                        topic_input = gr.Textbox(
-                            label="Research Topic",
-                            placeholder="e.g., AI Agents and Multi-Agent Systems",
-                            lines=2,
-                        )
-                        platform_checkboxes = gr.CheckboxGroup(
-                            choices=["Blog", "LinkedIn", "Twitter"],
-                            value=["Blog", "LinkedIn", "Twitter"],
-                            label="Target Platforms",
-                        )
-                        tone_dropdown = gr.Dropdown(
-                            choices=[
-                                "professional-formal",
-                                "professional-conversational",
-                                "technical",
-                            ],
-                            value="professional-conversational",
-                            label="Content Tone",
-                        )
-                        audience_input = gr.Textbox(
-                            label="Target Audience",
-                            value="researchers and professionals",
-                            lines=1,
-                        )
+                with gr.Column(scale=2):
+                    with gr.Tabs():
+                        with gr.Tab("LinkedIn"):
+                            li_text = gr.Textbox(
+                                label="Native LinkedIn Post (Plain Text — Editable)",
+                                lines=18,
+                            )
+                            li_gallery = gr.Gallery(
+                                label="Generated Charts & Architecture Diagrams (PNG)",
+                                columns=2,
+                                height="auto",
+                            )
+                            li_pdf = gr.File(label="LinkedIn Carousel PDF (4:5)")
 
-                        with gr.Accordion("Advanced Options", open=False):
-                            session_id_input = gr.Textbox(
-                                label="Session ID (optional - leave empty for new session)",
-                                placeholder="Enter session ID to resume",
-                                lines=1,
+                        with gr.Tab("X (Twitter)"):
+                            x_text = gr.Textbox(
+                                label="X Thread & Standalone Posts (Editable)",
+                                lines=18,
+                            )
+                            x_video = gr.Video(label="Short Explainer / Demo Video (16:9 for X)")
+
+                        with gr.Tab("YouTube"):
+                            yt_text = gr.Textbox(
+                                label="YouTube Package (Titles, Thumbnails, Long Script, 60s Short, Live Demo Shotlist)",
+                                lines=20,
+                            )
+                            yt_short_video = gr.Video(
+                                label="YouTube Short / LinkedIn Vertical Video (9:16)"
                             )
 
-                        generate_btn = gr.Button("Generate Content", variant="primary", size="lg")
+                        with gr.Tab("Sources & Quality Gate"):
+                            bib_text = gr.Code(
+                                label="Verified BibTeX References", language="markdown", lines=10
+                            )
+                            qual_text = gr.Markdown(label="Fact-Check & Anti-AI-Slop Report")
 
-                    with gr.Column():
-                        output_display = gr.Textbox(
-                            label="Generated Content",
-                            lines=25,
-                            max_lines=50,
-                        )
+                    save_edits_btn = gr.Button("Save Human Edits & Refresh ZIP")
+                    edit_status = gr.Textbox(label="Save Status", lines=1, interactive=False)
 
-                generate_btn.click(
-                    fn=generate_content_sync,
-                    inputs=[
-                        topic_input,
-                        platform_checkboxes,
-                        tone_dropdown,
-                        audience_input,
-                        session_id_input,
-                    ],
-                    outputs=output_display,
-                )
-
-            # ===== TAB 2: PROFILE EDITOR =====
-            with gr.Tab("👤 Profile Editor"):
-                gr.Markdown("### Edit Your Professional Profile")
-
-                with gr.Row():
-                    with gr.Column():
-                        gr.Markdown("#### Professional Identity")
-                        name_input = gr.Textbox(label="Name", value="Your Name")
-                        target_role_input = gr.Textbox(label="Target Role", value="AI Consultant")
-                        expertise_input = gr.Textbox(
-                            label="Expertise Areas (comma-separated)",
-                            value="Machine Learning, AI",
-                            lines=2,
-                        )
-
-                        gr.Markdown("#### Professional Goals")
-                        goals_input = gr.Textbox(
-                            label="Content Goals (comma-separated)",
-                            value="opportunities, credibility, visibility",
-                            lines=2,
-                        )
-
-                        gr.Markdown("#### Geographic & Market")
-                        region_dropdown = gr.Dropdown(
-                            choices=["Europe", "US", "Asia", "Global"],
-                            value="Europe",
-                            label="Region",
-                        )
-                        languages_input = gr.Textbox(
-                            label="Languages (comma-separated)", value="English"
-                        )
-                        industries_input = gr.Textbox(
-                            label="Target Industries (comma-separated)",
-                            value="Technology, Finance",
-                            lines=2,
-                        )
-
-                    with gr.Column():
-                        gr.Markdown("#### Portfolio & Links")
-                        github_input = gr.Textbox(label="GitHub Username")
-                        linkedin_input = gr.Textbox(label="LinkedIn URL")
-                        portfolio_input = gr.Textbox(label="Portfolio URL")
-                        kaggle_input = gr.Textbox(label="Kaggle Username")
-
-                        gr.Markdown("#### Technical Skills")
-                        skills_input = gr.Textbox(
-                            label="Primary Skills (comma-separated)",
-                            value="Python, PyTorch, TensorFlow",
-                            lines=2,
-                        )
-
-                        gr.Markdown("#### Content Preferences")
-                        tone_radio = gr.Radio(
-                            choices=[
-                                "professional-formal",
-                                "professional-conversational",
-                                "technical",
-                            ],
-                            value="professional-conversational",
-                            label="Content Tone",
-                        )
-                        emojis_checkbox = gr.Checkbox(label="Use Emojis", value=True)
-                        frequency_dropdown = gr.Dropdown(
-                            choices=["daily", "2-3x per week", "weekly"],
-                            value="2-3x per week",
-                            label="Posting Frequency",
-                        )
-
-                with gr.Row():
-                    with gr.Column():
-                        gr.Markdown("#### SEO & Positioning")
-                        uvp_input = gr.Textbox(
-                            label="Unique Value Proposition",
-                            value="I help companies turn AI research into production",
-                            lines=2,
-                        )
-                        diff_input = gr.Textbox(
-                            label="Key Differentiators (comma-separated)",
-                            value="Research to production, End-to-end AI",
-                            lines=2,
-                        )
-
-                    with gr.Column():
-                        gr.Markdown("#### Notable Projects (JSON)")
-                        projects_input = gr.Code(
-                            label="Projects",
-                            language="json",
-                            value=json.dumps(
-                                [
-                                    {
-                                        "name": "Project Name",
-                                        "description": "Description",
-                                        "technologies": "Tech stack",
-                                        "url": "https://github.com/...",
-                                    }
-                                ],
-                                indent=2,
-                            ),
-                            lines=10,
-                        )
-
-                with gr.Row():
-                    load_btn = gr.Button("Load Profile")
-                    validate_btn = gr.Button("Validate Profile")
-                    save_btn = gr.Button("Save Profile", variant="primary")
-
-                profile_status = gr.Textbox(label="Status", lines=5)
-
-                # Wire up profile buttons
-                load_btn.click(
-                    fn=load_profile_ui,
-                    inputs=[],
-                    outputs=[
-                        name_input,
-                        target_role_input,
-                        expertise_input,
-                        goals_input,
-                        region_dropdown,
-                        languages_input,
-                        industries_input,
-                        github_input,
-                        linkedin_input,
-                        portfolio_input,
-                        kaggle_input,
-                        projects_input,
-                        skills_input,
-                        tone_radio,
-                        emojis_checkbox,
-                        frequency_dropdown,
-                        uvp_input,
-                        diff_input,
-                        profile_status,
-                    ],
-                )
-
-                validate_btn.click(
-                    fn=validate_profile_ui,
-                    inputs=[
-                        name_input,
-                        target_role_input,
-                        expertise_input,
-                        goals_input,
-                        region_dropdown,
-                        languages_input,
-                        industries_input,
-                        github_input,
-                        linkedin_input,
-                        portfolio_input,
-                        kaggle_input,
-                        projects_input,
-                        skills_input,
-                        tone_radio,
-                        emojis_checkbox,
-                        frequency_dropdown,
-                        uvp_input,
-                        diff_input,
-                    ],
-                    outputs=profile_status,
-                )
-
-                save_btn.click(
-                    fn=save_profile_ui,
-                    inputs=[
-                        name_input,
-                        target_role_input,
-                        expertise_input,
-                        goals_input,
-                        region_dropdown,
-                        languages_input,
-                        industries_input,
-                        github_input,
-                        linkedin_input,
-                        portfolio_input,
-                        kaggle_input,
-                        projects_input,
-                        skills_input,
-                        tone_radio,
-                        emojis_checkbox,
-                        frequency_dropdown,
-                        uvp_input,
-                        diff_input,
-                    ],
-                    outputs=profile_status,
-                )
-
-            # ===== TAB 3: SESSION HISTORY =====
-            with gr.Tab("📚 Session History"):
-                gr.Markdown("### View and Manage Sessions")
-
-                with gr.Row():
-                    refresh_btn = gr.Button("Refresh Sessions")
-
-                sessions_table = gr.Dataframe(
-                    label="Sessions",
-                    value=list_sessions_ui(),
+            # ===== TAB 2: MULTI-LLM ROUTING =====
+            with gr.Tab("Multi-LLM Routing"):
+                gr.Markdown(_provider_status_markdown())
+                routing_table_df = gr.Dataframe(
+                    value=_routing_dataframe(),
+                    label="Active Model Assignment per Pipeline Role",
                     interactive=False,
                 )
-
+                gr.Markdown(
+                    "#### Optional Runtime Model Overrides (leave blank for automatic routing)"
+                )
                 with gr.Row():
-                    session_selector = gr.Textbox(
-                        label="Session ID (paste from table)",
-                        placeholder="Enter session ID",
+                    ov_linkedin = gr.Textbox(
+                        label="LinkedIn Writer Model",
+                        placeholder=ROLE_MODEL_PREFERENCES["linkedin"][0],
+                    )
+                    ov_x = gr.Textbox(
+                        label="X Writer Model",
+                        placeholder=ROLE_MODEL_PREFERENCES["x"][0],
+                    )
+                with gr.Row():
+                    ov_youtube = gr.Textbox(
+                        label="YouTube Writer Model",
+                        placeholder=ROLE_MODEL_PREFERENCES["youtube"][0],
+                    )
+                    ov_critic = gr.Textbox(
+                        label="Editorial Critic Model",
+                        placeholder=ROLE_MODEL_PREFERENCES["editorial_critic"][0],
+                    )
+                refresh_routing_btn = gr.Button("Preview Routing With Overrides")
+
+                def _preview_routing(li: str, x: str, yt: str, cr: str) -> pd.DataFrame:
+                    return _routing_dataframe(
+                        {"linkedin": li, "x": x, "youtube": yt, "editorial_critic": cr}
                     )
 
-                session_details = gr.Markdown(label="Session Details")
+                refresh_routing_btn.click(
+                    fn=_preview_routing,
+                    inputs=[ov_linkedin, ov_x, ov_youtube, ov_critic],
+                    outputs=routing_table_df,
+                )
 
+            # ===== TAB 3: PROFILE & KNOWLEDGE BASE =====
+            with gr.Tab("Profile & Knowledge Base"):
+                gr.Markdown(f"Active Knowledge Base directory: `{resolve_knowledge_dir()}`")
                 with gr.Row():
-                    view_details_btn = gr.Button("View Details")
-                    delete_btn = gr.Button("Delete Session", variant="stop")
-                    resume_btn = gr.Button("Resume Session")
+                    with gr.Column():
+                        p_name = gr.Textbox(label="Name")
+                        p_role = gr.Textbox(label="B2B / R&D Positioning")
+                        p_expertise = gr.Textbox(label="Expertise Areas (comma-separated)")
+                        p_pillars = gr.Textbox(label="Editorial Pillars (one per line)", lines=3)
+                        p_personas = gr.Textbox(label="Target B2B Personas (comma-separated)")
+                        p_offers = gr.Textbox(
+                            label="Business Offers / CIR-CII Positioning (one per line)", lines=3
+                        )
+                        p_uvp = gr.Textbox(label="Unique Value Proposition", lines=2)
+                        with gr.Row():
+                            p_linkedin = gr.Textbox(label="LinkedIn URL")
+                            p_github = gr.Textbox(label="GitHub Username")
+                        with gr.Row():
+                            p_x = gr.Textbox(label="X Handle")
+                            p_youtube = gr.Textbox(label="YouTube Channel")
+                        with gr.Row():
+                            load_prof_btn = gr.Button("Reload Profile & KB")
+                            save_prof_btn = gr.Button("Save Profile", variant="primary")
+                        prof_status = gr.Textbox(label="Profile Status", lines=2, interactive=False)
 
-                session_status = gr.Textbox(label="Status", lines=2)
+                    with gr.Column():
+                        voice_dna_box = gr.Textbox(
+                            label="Voice DNA (knowledge/voice_dna.md)", lines=16
+                        )
+                        save_voice_btn = gr.Button("Save Voice DNA")
+                        voice_status = gr.Textbox(
+                            label="Voice DNA Status", lines=1, interactive=False
+                        )
+                        cases_preview = gr.Code(
+                            label="Loaded Case Studies (read-only preview)",
+                            language="json",
+                            lines=12,
+                        )
 
-                # Wire up session buttons
-                refresh_btn.click(fn=list_sessions_ui, inputs=[], outputs=sessions_table)
+            # ===== TAB 4: SESSIONS & EXPORTS =====
+            with gr.Tab("Sessions & Bundles"):
+                gr.Markdown("### Exported Ready-to-Post Bundles (`output/`)")
+                bundles_df = gr.Dataframe(value=_list_exported_bundles(), interactive=False)
+                refresh_bundles_btn = gr.Button("Refresh Bundles")
+                refresh_bundles_btn.click(fn=_list_exported_bundles, outputs=bundles_df)
 
-                view_details_btn.click(
-                    fn=get_session_details_ui, inputs=session_selector, outputs=session_details
+                gr.Markdown("### Saved ADK Sessions")
+                sessions_df = gr.Dataframe(value=list_sessions_df(), interactive=False)
+                with gr.Row():
+                    del_sid = gr.Textbox(label="Session ID to Delete")
+                    del_btn = gr.Button("Delete Session", variant="stop")
+                    ref_sess_btn = gr.Button("Refresh Sessions")
+                sess_status = gr.Textbox(label="Session Status", lines=1, interactive=False)
+
+                ref_sess_btn.click(fn=list_sessions_df, outputs=sessions_df)
+                del_btn.click(
+                    fn=delete_session_ui, inputs=del_sid, outputs=[sessions_df, sess_status]
                 )
 
-                delete_btn.click(
-                    fn=delete_session_ui,
-                    inputs=session_selector,
-                    outputs=[sessions_table, session_status],
-                )
+        # Wire Studio actions
+        generate_btn.click(
+            fn=generate_studio_bundle,
+            inputs=[
+                topic_in,
+                seed_in,
+                files_in,
+                channels_in,
+                lang_in,
+                session_in,
+                ov_linkedin,
+                ov_x,
+                ov_youtube,
+                ov_critic,
+            ],
+            outputs=[
+                status_box,
+                li_text,
+                x_text,
+                yt_text,
+                bib_text,
+                qual_text,
+                li_gallery,
+                li_pdf,
+                x_video,
+                yt_short_video,
+                zip_out,
+                active_bundle_dir,
+            ],
+        )
 
-                # Resume session - switches to Tab 1 and populates session ID
-                def resume_session(session_id):
-                    return session_id
+        save_edits_btn.click(
+            fn=save_human_edits,
+            inputs=[active_bundle_dir, li_text, x_text, yt_text],
+            outputs=[edit_status, zip_out],
+        )
 
-                resume_btn.click(
-                    fn=resume_session, inputs=session_selector, outputs=session_id_input
-                )
+        load_prof_btn.click(
+            fn=load_profile_fields,
+            outputs=[
+                p_name,
+                p_role,
+                p_expertise,
+                p_pillars,
+                p_personas,
+                p_offers,
+                p_uvp,
+                p_linkedin,
+                p_github,
+                p_x,
+                p_youtube,
+                voice_dna_box,
+                cases_preview,
+            ],
+        )
+        save_prof_btn.click(
+            fn=save_profile_fields,
+            inputs=[
+                p_name,
+                p_role,
+                p_expertise,
+                p_pillars,
+                p_personas,
+                p_offers,
+                p_uvp,
+                p_linkedin,
+                p_github,
+                p_x,
+                p_youtube,
+            ],
+            outputs=prof_status,
+        )
+        save_voice_btn.click(fn=save_voice_dna_ui, inputs=voice_dna_box, outputs=voice_status)
 
-            # ===== TAB 4: SETTINGS =====
-            with gr.Tab("⚙️ Settings"):
-                gr.Markdown("### Configure API and Content Settings")
-
-                gr.Markdown("#### API Configuration")
-                api_key_input = gr.Textbox(
-                    label="Google API Key",
-                    type="password",
-                    placeholder="Enter your API key from https://aistudio.google.com/app/api_keys",
-                )
-                gr.Markdown(
-                    "*Your API key is stored locally and never shared. Get one at [Google AI Studio](https://aistudio.google.com/app/api_keys)*"
-                )
-
-                model_dropdown = gr.Dropdown(
-                    choices=["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"],
-                    value=DEFAULT_MODEL,
-                    label="Model",
-                )
-
-                gr.Markdown("#### Content Configuration")
-                max_papers_slider = gr.Slider(
-                    minimum=1,
-                    maximum=20,
-                    value=MAX_PAPERS_PER_SEARCH,
-                    step=1,
-                    label="Max Papers per Search",
-                )
-                citation_radio = gr.Radio(
-                    choices=["apa", "mla", "chicago"], value=CITATION_STYLE, label="Citation Style"
-                )
-
-                save_settings_btn = gr.Button("Save Settings", variant="primary")
-                settings_status = gr.Textbox(label="Status", lines=3)
-
-                save_settings_btn.click(
-                    fn=save_settings_ui,
-                    inputs=[api_key_input, model_dropdown, max_papers_slider, citation_radio],
-                    outputs=settings_status,
-                )
-
-        gr.Markdown(
-            """
-        ---
-        💡 **Tips**:
-        - Generate Content: Enter a topic and click Generate (takes 2-5 minutes)
-        - Profile Editor: Customize your professional profile for personalized content
-        - Session History: Resume previous generations or delete old sessions
-        - Settings: Configure API key and content preferences
-
-        📚 [Documentation](https://github.com/anthropics/agentic-content-generation) |
-        🐛 [Report Issues](https://github.com/anthropics/agentic-content-generation/issues)
-        """
+        app.load(
+            fn=load_profile_fields,
+            outputs=[
+                p_name,
+                p_role,
+                p_expertise,
+                p_pillars,
+                p_personas,
+                p_offers,
+                p_uvp,
+                p_linkedin,
+                p_github,
+                p_x,
+                p_youtube,
+                voice_dna_box,
+                cases_preview,
+            ],
         )
 
     return app
 
 
-# ============================================================================
-# Main Entry Point
-# ============================================================================
+def get_launch_config() -> dict[str, Any]:
+    """Build secure Gradio launch parameters (localhost by default, optional Basic Auth)."""
+    host = os.getenv("GRADIO_SERVER_NAME", "127.0.0.1").strip() or "127.0.0.1"
+    port = int(os.getenv("GRADIO_SERVER_PORT", "7860"))
+    auth_user = os.getenv("GRADIO_AUTH_USER", "").strip()
+    auth_pass = os.getenv("GRADIO_AUTH_PASSWORD", "").strip()
+    auth = (auth_user, auth_pass) if (auth_user and auth_pass) else None
+
+    if host not in {"127.0.0.1", "localhost", "::1"} and auth is None:
+        allow_lan = os.getenv("ALLOW_UNAUTHENTICATED_LAN", "").lower() == "true"
+        if not allow_lan:
+            raise PermissionError(
+                f"Refusing to bind Gradio on '{host}' without GRADIO_AUTH_USER/GRADIO_AUTH_PASSWORD. "
+                "Keep localhost (127.0.0.1) or configure Basic Auth."
+            )
+
+    return {
+        "server_name": host,
+        "server_port": port,
+        "share": False,
+        "auth": auth,
+        "theme": gr.themes.Soft(),
+    }
+
 
 if __name__ == "__main__":
-    print("🚀 Launching Scientific Content Generation Agent UI...")
-    print("📍 Access at: http://localhost:7860")
-    print()
-
-    app = create_ui()
-    app.queue()  # Enable queueing for long-running tasks
-    app.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    ui = create_ui()
+    ui.queue()
+    ui.launch(**get_launch_config())
