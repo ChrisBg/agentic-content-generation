@@ -15,7 +15,7 @@ from typing import Any
 
 from google.adk.plugins.logging_plugin import LoggingPlugin
 from google.adk.runners import Runner
-from google.adk.sessions import DatabaseSessionService
+from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.genai import types
 
 from src.agents import create_content_generation_pipeline
@@ -155,10 +155,16 @@ async def run_content_generation(
         model_overrides=model_overrides,
     )
 
-    # Persistent async SQLite session store
+    # Persistent async SQLite session store (graceful fallback if sqlalchemy[asyncio]/greenlet missing)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     db_url = f"sqlite+aiosqlite:///{PROFILE_DIR / 'sessions.db'}"
-    session_service = DatabaseSessionService(db_url=db_url)
+    try:
+        session_service: Any = DatabaseSessionService(db_url=db_url)
+    except Exception as exc:
+        logging.warning(
+            "DatabaseSessionService unavailable (%s); falling back to InMemorySessionService.", exc
+        )
+        session_service = InMemorySessionService()
 
     app_name = "scientific-content-agent"
     runner = Runner(
