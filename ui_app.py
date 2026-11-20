@@ -84,6 +84,14 @@ def _list_exported_bundles() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _format_exception(exc: BaseException) -> str:
+    """Unpack Python 3.11+ ExceptionGroup / TaskGroup errors into readable root causes."""
+    if isinstance(exc, BaseExceptionGroup):
+        sub_msgs = [_format_exception(sub) for sub in exc.exceptions]
+        return "; ".join(sub_msgs)
+    return f"{type(exc).__name__}: {exc}"
+
+
 async def generate_studio_bundle(
     topic: str,
     human_seed: str,
@@ -151,8 +159,9 @@ async def generate_studio_bundle(
             on_progress=_progress_cb,
         )
     except Exception as exc:
+        logger.exception("Content generation failed")
         return (
-            f"Generation failed: {exc}",
+            f"Generation failed: {_format_exception(exc)}",
             "",
             "",
             "",

@@ -9,12 +9,10 @@ Sources implemented (all strictly SSRF-hardened, timeout-bounded, and defusedxml
 6. Curated Industry RSS (`fetch_industry_rss_feeds`) — Allowlisted AdTech & AI Engineering feeds
 """
 
-from __future__ import annotations
-
 import io
 import os
 import re
-from typing import Any
+from typing import Any, Optional
 
 import defusedxml.ElementTree as DefusedET
 import requests
@@ -98,7 +96,7 @@ def _reconstruct_openalex_abstract(inverted_index: dict[str, list[int]] | None) 
 def search_openalex_papers(
     query: str,
     max_results: int = 5,
-    year_from: int | None = None,
+    year_from: Optional[int] = None,  # noqa: UP007, UP045
 ) -> dict[str, Any]:
     """Search OpenAlex works (250M+ papers across AI, Econometrics, Finance, Marketing & AdTech).
 
@@ -335,7 +333,7 @@ def fetch_alphaxiv_overview(arxiv_id: str) -> dict[str, Any]:
 def search_hal_papers(
     query: str,
     max_results: int = 5,
-    year_from: int | None = None,
+    year_from: Optional[int] = None,  # noqa: UP007, UP045
 ) -> dict[str, Any]:
     """Search HAL (French Open Archive — CNRS, INRIA, French universities).
 

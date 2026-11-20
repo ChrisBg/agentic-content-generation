@@ -4,11 +4,9 @@ Uses pure Python (Matplotlib + Pillow + fpdf2) with zero browser/Chromium depend
 so it runs reliably on macOS, Linux, CI, and Hugging Face Spaces.
 """
 
-from __future__ import annotations
-
 import textwrap
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import matplotlib
 
@@ -323,7 +321,7 @@ def render_linkedin_carousel_pdf(
     slides: list[dict[str, Any]],
     output_path: str = "output/tmp_assets/linkedin_carousel.pdf",
     author_line: str = DEFAULT_WATERMARK,
-    chart_paths: list[str] | None = None,
+    chart_paths: Optional[list[str]] = None,  # noqa: UP007, UP045
 ) -> dict[str, Any]:
     """Generate a ready-to-upload LinkedIn portrait PDF carousel (4:5 aspect ratio).
 

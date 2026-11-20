@@ -5,15 +5,13 @@ animated data/architecture videos with synchronized .srt subtitles and a live de
 screen-recording shotlist.
 """
 
-from __future__ import annotations
-
 import logging
 import shutil
 import subprocess
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -156,7 +154,7 @@ def render_short_explainer_video(
     storyboard: list[dict[str, Any]],
     output_path: str = "output/tmp_assets/demo_explainer_16x9.mp4",
     aspect_ratio: str = "16:9",
-    audio_path: str | None = None,
+    audio_path: Optional[str] = None,  # noqa: UP007, UP045
 ) -> dict[str, Any]:
     """Assemble a crisp 30-60s MP4 explainer video + synchronized .srt subtitles via FFmpeg.
 
@@ -290,7 +288,7 @@ def render_short_explainer_video(
 def generate_demo_shotlist(
     topic: str,
     steps: list[str],
-    metrics: list[str] | None = None,
+    metrics: Optional[list[str]] = None,  # noqa: UP007, UP045
     language: str = "fr",
 ) -> dict[str, Any]:
     """Generate a second-by-second Live Demo recording runbook (for Screen Studio / OBS).
