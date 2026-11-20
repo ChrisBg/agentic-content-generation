@@ -9,8 +9,8 @@ class TestModelRouter:
     """Tests for ModelRouter resolution logic."""
 
     def test_infer_provider(self):
-        assert infer_provider("gemini-2.5-pro") == "google"
-        assert infer_provider("anthropic/claude-sonnet-4-5-20250929") == "anthropic"
+        assert infer_provider("gemini-3.1-pro-preview") == "google"
+        assert infer_provider("anthropic/claude-sonnet-5-5") == "anthropic"
         assert infer_provider("openai/gpt-4.1") == "openai"
         assert infer_provider("xai/grok-3") == "xai"
 
@@ -62,8 +62,8 @@ class TestModelRouter:
         assert router_env.resolve("linkedin").model_name == "openai/gpt-4.1"
         assert "env MODEL_LINKEDIN" in router_env.resolve("linkedin").reason
 
-        router_rt = ModelRouter(overrides={"linkedin": "gemini-2.5-pro"}, env=env)
-        assert router_rt.resolve("linkedin").model_name == "gemini-2.5-pro"
+        router_rt = ModelRouter(overrides={"linkedin": "gemini-3.1-pro-preview"}, env=env)
+        assert router_rt.resolve("linkedin").model_name == "gemini-3.1-pro-preview"
         assert router_rt.resolve("linkedin").reason == "runtime override"
 
     def test_format_routing_summary(self):
