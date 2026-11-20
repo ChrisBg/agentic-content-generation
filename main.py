@@ -15,7 +15,7 @@ from typing import Any
 
 from google.adk.plugins.logging_plugin import LoggingPlugin
 from google.adk.runners import Runner
-from google.adk.sessions import DatabaseSessionService
+from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.genai import types
 
 from src.agents import create_content_generation_pipeline
@@ -155,10 +155,16 @@ async def run_content_generation(
         model_overrides=model_overrides,
     )
 
-    # Persistent async SQLite session store
+    # Persistent async SQLite session store (graceful fallback if sqlalchemy[asyncio]/greenlet missing)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     db_url = f"sqlite+aiosqlite:///{PROFILE_DIR / 'sessions.db'}"
-    session_service = DatabaseSessionService(db_url=db_url)
+    try:
+        session_service: Any = DatabaseSessionService(db_url=db_url)
+    except Exception as exc:
+        logging.warning(
+            "DatabaseSessionService unavailable (%s); falling back to InMemorySessionService.", exc
+        )
+        session_service = InMemorySessionService()
 
     app_name = "scientific-content-agent"
     runner = Runner(
@@ -200,6 +206,7 @@ TONE: {prefs.get("tone", profile.content_tone)}
         on_progress(0.08, f"Launching hybrid ADK pipeline ({', '.join(channels)})...")
 
     final_content = ""
+    pipeline_state: dict[str, str] = {}
     seen_agents: set[str] = set()
     query = types.Content(role="user", parts=[types.Part(text=user_message)])
 
@@ -216,12 +223,46 @@ TONE: {prefs.get("tone", profile.content_tone)}
             if on_progress:
                 on_progress(frac, desc)
 
-        if (
-            event.actions
-            and event.actions.state_delta
-            and "final_content" in event.actions.state_delta
-        ):
-            final_content = str(event.actions.state_delta["final_content"])
+        if event.actions and event.actions.state_delta:
+            for key, val in event.actions.state_delta.items():
+                if isinstance(val, str) and val.strip():
+                    pipeline_state[key] = val
+            if "final_content" in event.actions.state_delta:
+                candidate = str(event.actions.state_delta["final_content"]).strip()
+                if candidate:
+                    final_content = candidate
+
+    # Resilient fallback: if final_content is missing expected FINAL headers, assemble from verified state
+    if "=== FINAL " not in final_content:
+        fallback_blocks: list[str] = []
+        if "draft_linkedin" in pipeline_state:
+            fallback_blocks.append(
+                "=== FINAL LINKEDIN POST ===\n" + pipeline_state["draft_linkedin"]
+            )
+        if "draft_x" in pipeline_state:
+            fallback_blocks.append("=== FINAL X THREAD ===\n" + pipeline_state["draft_x"])
+        if "draft_youtube" in pipeline_state:
+            fallback_blocks.append(
+                "=== FINAL YOUTUBE PACKAGE ===\n" + pipeline_state["draft_youtube"]
+            )
+        if "draft_newsletter" in pipeline_state:
+            fallback_blocks.append(
+                "=== FINAL NEWSLETTER ===\n" + pipeline_state["draft_newsletter"]
+            )
+        if "verified_research" in pipeline_state:
+            fallback_blocks.append(
+                "=== BIBTEX REFERENCES ===\n" + pipeline_state["verified_research"]
+            )
+        quality_parts = [
+            pipeline_state.get("fact_check_report", ""),
+            pipeline_state.get("editorial_critique", ""),
+            final_content,
+        ]
+        quality_joined = "\n\n".join(p for p in quality_parts if p.strip())
+        if quality_joined:
+            fallback_blocks.append("=== QUALITY REPORT ===\n" + quality_joined)
+        if fallback_blocks:
+            final_content = "\n\n".join(fallback_blocks)
 
     if not final_content:
         final_content = "No content generated. Please check logs/agent.log for details."

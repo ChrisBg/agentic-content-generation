@@ -31,7 +31,13 @@ class TestIndividualAgents:
         tool_names = [t.__name__ for t in agent.tools]
         assert "search_semantic_scholar" in tool_names
         assert "verify_citation_semantic_scholar" in tool_names
+        assert "search_openalex_papers" in tool_names
+        assert "search_huggingface_daily_papers" in tool_names
+        assert "search_hal_papers" in tool_names
         assert "search_arxiv_papers" in tool_names
+        assert "fetch_alphaxiv_overview" in tool_names
+        assert "fetch_arxiv_pdf_text" in tool_names
+        assert "fetch_industry_rss_feeds" in tool_names
         assert "generate_bibtex" in tool_names
         assert agent.output_key == "verified_research"
 
@@ -102,3 +108,25 @@ class TestHybridPipeline:
         writers_stage = pipeline.sub_agents[2]
         writer_names = [a.name for a in writers_stage.sub_agents]
         assert writer_names == ["LinkedInWriterAgent", "NewsletterWriterAgent"]
+
+    def test_all_adk_tool_declarations_are_valid(self):
+        """Ensure every tool attached to every agent parses cleanly for Gemini/ADK function calling."""
+        from google.adk.tools.function_tool import FunctionTool
+
+        pipeline = create_content_generation_pipeline(
+            channels=["linkedin", "x", "youtube", "newsletter"]
+        )
+        checked = 0
+
+        def _walk(agent):
+            nonlocal checked
+            for tool in getattr(agent, "tools", []) or []:
+                ft = FunctionTool(tool) if callable(tool) else tool
+                decl = ft._get_declaration()
+                assert decl is not None, f"Empty declaration for {agent.name}.{tool}"
+                checked += 1
+            for sub in getattr(agent, "sub_agents", []) or []:
+                _walk(sub)
+
+        _walk(pipeline)
+        assert checked >= 18

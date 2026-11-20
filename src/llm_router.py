@@ -169,7 +169,11 @@ class ModelRouter:
         if LiteLlm is None:  # pragma: no cover
             return Gemini(model=DEFAULT_PRO_MODEL, retry_options=RETRY_CONFIG)
 
-        return LiteLlm(model=resolution.model_name)
+        # Explicitly set generous output budget so Anthropic/OpenAI don't truncate at LiteLLM's 4096 default
+        max_tokens = (
+            16384 if role.lower() in {"refiner", "youtube", "linkedin", "newsletter"} else 8192
+        )
+        return LiteLlm(model=resolution.model_name, max_tokens=max_tokens)
 
     def get_provider_status(self) -> dict[str, bool]:
         """Return availability status of all supported LLM providers."""

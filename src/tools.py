@@ -1,13 +1,11 @@
 """Grounded research, citation verification, deterministic linting, and loop-control tools."""
 
-from __future__ import annotations
-
 import os
 import re
 import time
 from datetime import datetime
 from difflib import SequenceMatcher
-from typing import Any
+from typing import Any, Optional
 
 import defusedxml.ElementTree as DefusedET
 import requests
@@ -87,7 +85,7 @@ def _format_single_bibtex(paper: dict[str, Any]) -> str:
 def search_semantic_scholar(
     query: str,
     max_results: int = 5,
-    year_from: int | None = None,
+    year_from: Optional[int] = None,  # noqa: UP007, UP045
 ) -> dict[str, Any]:
     """Search verified academic papers via the Semantic Scholar Graph API.
 
@@ -389,9 +387,9 @@ def generate_bibtex(papers: list[dict[str, Any]]) -> dict[str, Any]:
 
 def validate_deliverables_deterministic(
     linkedin_post: str = "",
-    x_tweets: list[str] | None = None,
+    x_tweets: Optional[list[str]] = None,  # noqa: UP007, UP045
     youtube_script: str = "",
-    banned_phrases: list[str] | None = None,
+    banned_phrases: Optional[list[str]] = None,  # noqa: UP007, UP045
 ) -> dict[str, Any]:
     """Deterministic Python quality & formatting gate for LinkedIn, X, and YouTube.
 

@@ -19,9 +19,9 @@ XAI_API_KEY = os.getenv("XAI_API_KEY")
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "FALSE")
 
-# Default Gemini Models (replaces deprecated gemini-2.0-flash-exp)
-DEFAULT_PRO_MODEL = os.getenv("DEFAULT_PRO_MODEL", "gemini-2.5-pro")
-DEFAULT_FLASH_MODEL = os.getenv("DEFAULT_FLASH_MODEL", "gemini-2.5-flash")
+# Default Gemini Models (current Gemini 3.1 / 3 Flash API models)
+DEFAULT_PRO_MODEL = os.getenv("DEFAULT_PRO_MODEL", "gemini-3.1-pro-preview")
+DEFAULT_FLASH_MODEL = os.getenv("DEFAULT_FLASH_MODEL", "gemini-3-flash-preview")
 DEFAULT_MODEL = DEFAULT_PRO_MODEL
 
 # Preferred Multi-LLM routing table per role (ordered by preference; auto-fallback to Gemini)
@@ -31,33 +31,33 @@ ROLE_MODEL_PREFERENCES: dict[str, list[str]] = {
     "personal_context": [DEFAULT_FLASH_MODEL, DEFAULT_PRO_MODEL],
     "visual": [DEFAULT_PRO_MODEL],
     "linkedin": [
-        "anthropic/claude-sonnet-4-5-20250929",
+        "anthropic/claude-sonnet-5-5",
         "openai/gpt-4.1",
         DEFAULT_PRO_MODEL,
     ],
     "x": [
         "xai/grok-3",
         "openai/gpt-4.1",
-        "anthropic/claude-sonnet-4-5-20250929",
+        "anthropic/claude-sonnet-5-5",
         DEFAULT_PRO_MODEL,
     ],
     "youtube": [
-        "anthropic/claude-sonnet-4-5-20250929",
+        "anthropic/claude-sonnet-5-5",
         "openai/gpt-4.1",
         DEFAULT_PRO_MODEL,
     ],
     "newsletter": [
-        "anthropic/claude-sonnet-4-5-20250929",
+        "anthropic/claude-sonnet-5-5",
         DEFAULT_PRO_MODEL,
     ],
     "fact_checker": [DEFAULT_PRO_MODEL],
     "editorial_critic": [
         "openai/gpt-4.1",
         DEFAULT_PRO_MODEL,
-        "anthropic/claude-sonnet-4-5-20250929",
+        "anthropic/claude-sonnet-5-5",
     ],
     "refiner": [
-        "anthropic/claude-sonnet-4-5-20250929",
+        "anthropic/claude-sonnet-5-5",
         DEFAULT_PRO_MODEL,
     ],
 }

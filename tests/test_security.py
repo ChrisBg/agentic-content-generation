@@ -12,6 +12,11 @@ import pytest
 import src.security as security
 from scripts.security_check import run_security_audit
 from src.knowledge_base import get_voice_and_style_guide, retrieve_personal_evidence
+from src.research_sources import (
+    fetch_alphaxiv_overview,
+    fetch_arxiv_pdf_text,
+    fetch_industry_rss_feeds,
+)
 from src.security import resolve_safe_path
 from src.tools import search_arxiv_papers
 from src.video_assets import render_short_explainer_video
@@ -151,6 +156,36 @@ class TestXMLHardening:
 
         res = search_arxiv_papers("security test")
         assert res["status"] == "error"
+
+    @patch("src.research_sources.requests.get")
+    def test_rss_feeds_block_xxe_payload(self, mock_get):
+        xxe_rss = b"""<?xml version="1.0"?>
+        <!DOCTYPE rss [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+        <rss><channel><item><title>&xxe;</title></item></channel></rss>
+        """
+        mock_resp = MagicMock()
+        mock_resp.content = xxe_rss
+        mock_get.return_value = mock_resp
+
+        res = fetch_industry_rss_feeds(category="adtech")
+        assert res["status"] == "success"
+        assert res["items"] == []
+        assert len(res["feed_errors"]) > 0
+
+
+class TestResearchSourcesSSRFProtection:
+    """Verify research source tools block arbitrary URLs / SSRF attempts."""
+
+    def test_alphaxiv_and_arxiv_pdf_reject_ssrf_urls(self):
+        assert (
+            fetch_alphaxiv_overview("http://169.254.169.254/latest/meta-data")["status"] == "error"
+        )
+        assert fetch_arxiv_pdf_text("http://localhost:8080/internal.pdf")["status"] == "error"
+        assert fetch_arxiv_pdf_text("../../etc/passwd")["status"] == "error"
+
+    def test_rss_tool_exposes_no_arbitrary_url_parameter(self):
+        assert "url" not in inspect.signature(fetch_industry_rss_feeds).parameters
+        assert "feed_url" not in inspect.signature(fetch_industry_rss_feeds).parameters
 
 
 class TestGradioNetworkSecurity:

@@ -35,6 +35,14 @@ from .config import (
 )
 from .knowledge_base import get_voice_and_style_guide, retrieve_personal_evidence
 from .llm_router import ModelRouter
+from .research_sources import (
+    fetch_alphaxiv_overview,
+    fetch_arxiv_pdf_text,
+    fetch_industry_rss_feeds,
+    search_hal_papers,
+    search_huggingface_daily_papers,
+    search_openalex_papers,
+)
 from .tools import (
     exit_loop,
     generate_bibtex,
@@ -89,31 +97,37 @@ Be concise, structured, and concrete. Output this blueprint as your final respon
 
 
 def create_literature_agent(router: ModelRouter | None = None) -> LlmAgent:
-    """Stage 2a: Hybrid literature discovery + Semantic Scholar citation verification."""
+    """Stage 2a: Hybrid multi-source literature discovery + deep-dive + citation verification."""
     router = router or ModelRouter()
     return LlmAgent(
         name=RESEARCH_AGENT_NAME,
         model=router.get_model("research"),
-        description="Discovers academic papers & industry signals and verifies citations via Semantic Scholar.",
+        description="Discovers & deep-reads papers across Semantic Scholar, OpenAlex, arXiv, alphaXiv, HuggingFace Daily Papers, HAL, and curated AdTech/AI RSS feeds.",
         instruction="""You are a Hybrid Literature & Fact-Grounding Specialist (PaperOrchestra pattern).
 
 Read the blueprint:
 {content_blueprint}
 
-Execute this rigorous workflow:
-1. **Academic Discovery**:
-   - Call `search_semantic_scholar()` on the micro academic queries (preferring well-cited or recent papers).
-   - Call `search_arxiv_papers(..., sort_by="relevance")` for cutting-edge preprints.
-2. **Citation Verification**:
-   - For the top 2-4 papers you intend to cite, verify canonical title/year/authors via `verify_citation_semantic_scholar()` if they came only from arXiv or web snippets.
-   - Call `generate_bibtex()` on the verified papers so a clean BibTeX block is ready for export and LaTeX reuse.
-3. **Industry Grounding**:
-   - Call `search_industry_context()` or `search_web()` for real-world deployment context.
+Execute this rigorous multi-source workflow (choose the most relevant tools for the topic):
+1. **Broad & Domain Academic Discovery**:
+   - Call `search_semantic_scholar()` for well-cited AI/CS papers.
+   - Call `search_openalex_papers()` for broad academic, Econometrics, Finance, Marketing, and AdTech literature.
+   - Call `search_huggingface_daily_papers()` to capture trending AI/Agent papers and linked GitHub repositories.
+   - Call `search_hal_papers()` when French academic / CIR-CII state-of-the-art references add value.
+   - Call `search_arxiv_papers(..., sort_by="relevance")` for the latest preprints.
+2. **Deep-Dive Reading (Beyond Abstracts — for the Top 1-2 arXiv Papers)**:
+   - Call `fetch_alphaxiv_overview(arxiv_id)` for structured methodology, insights, and limitations.
+   - Call `fetch_arxiv_pdf_text(arxiv_id)` if you need exact experimental benchmark tables or ablation numbers from the full PDF.
+3. **Citation Verification & BibTeX**:
+   - Verify canonical title/year/authors via `verify_citation_semantic_scholar()` for key cited papers.
+   - Call `generate_bibtex()` on the verified papers so a clean BibTeX block is ready for export and LaTeX/CIR reuse.
+4. **Industry Grounding**:
+   - Call `fetch_industry_rss_feeds()` (`category="adtech"`, `"ai_engineering"`, or `"all"`) and/or `search_industry_context()` for real-world deployment signals.
 
 Compile a structured **VERIFIED RESEARCH DOSSIER**:
-- **Verified Academic Papers**: Title, Authors, EXACT Year, Venue, Citation Count, URL, and 2-3 bullet factual findings directly supported by the abstract.
+- **Verified Academic Papers**: Title, Authors, EXACT Year, Venue, Citation Count, URL (incl. alphaXiv / GitHub if available), and 2-3 factual findings grounded in the abstract/overview/PDF.
 - **Verified Benchmarks & Quantitative Facts**: Exact numbers with exact source attribution (never extrapolate).
-- **Industry Context**: Practical market signals.
+- **Industry Context**: Practical AdTech / AI Engineering market signals.
 - **BibTeX Block**: The exact output of `generate_bibtex()`.
 
 NEVER fabricate a paper, year, or percentage.
@@ -121,7 +135,13 @@ NEVER fabricate a paper, year, or percentage.
         tools=[
             search_semantic_scholar,
             verify_citation_semantic_scholar,
+            search_openalex_papers,
+            search_huggingface_daily_papers,
+            search_hal_papers,
             search_arxiv_papers,
+            fetch_alphaxiv_overview,
+            fetch_arxiv_pdf_text,
+            fetch_industry_rss_feeds,
             search_industry_context,
             search_web,
             generate_bibtex,
@@ -285,17 +305,15 @@ Inputs:
 - Editorial Critique: {{editorial_critique}}
 
 Decision Logic:
-1. Check whether BOTH:
-   - `FACT_CHECK_STATUS` is `PASS` (zero unsourced numbers or hallucinated citations), AND
-   - `DETERMINISTIC_LINT_PASSED` is `True` AND `EDITORIAL_SCORE` >= 85.
-2. **If NOT passed yet**:
-   - Rewrite ONLY the failing parts cleanly (strip any `**` from LinkedIn, shorten tweets > 280 chars, remove banned clichés/placeholders, fix unsourced claims).
-   - Output the full updated deliverables clearly delimited with the markers below so the next iteration verifies them. Do NOT call `exit_loop` yet.
-3. **If PASSED (or after applying clean final fixes when only minor warnings remain)**:
-   - If LinkedIn carousel slides were drafted, call `render_linkedin_carousel_pdf()` saving to `output/tmp_assets/linkedin_carousel.pdf` (passing any generated chart PNG paths).
-   - If a video storyboard was drafted for X / YouTube, call `render_short_explainer_video()` for `16:9` (`output/tmp_assets/demo_explainer_16x9.mp4`) and `9:16` (`output/tmp_assets/short_9x16.mp4`).
-   - Call `exit_loop()` to finish the refinement loop.
-   - Output the COMPLETE, READY-TO-PUBLISH bundle using these EXACT section headers (omit channels not requested):
+1. Review `fact_check_report` and `editorial_critique`.
+2. Fix EVERY blocking issue immediately in this turn (math/unit consistency such as `/semaine` vs `/mois`, zero unsourced stats, zero Markdown `**` in LinkedIn, every X tweet <= 280 chars, zero banned clichés or placeholders, complete YouTube script).
+3. ALWAYS render the final media assets BEFORE exiting:
+   - If LinkedIn carousel slides exist, call `render_linkedin_carousel_pdf()` saving to `output/tmp_assets/linkedin_carousel.pdf` (passing any valid chart PNG paths from `generated_visuals`).
+   - If X or YouTube was requested, call `render_short_explainer_video()` TWICE using a clean 4-5 scene storyboard (using ONLY verified facts & figures — exclude any flawed overlay):
+     - `aspect_ratio="16:9"`, `output_path="output/tmp_assets/demo_explainer_16x9.mp4"`
+     - `aspect_ratio="9:16"`, `output_path="output/tmp_assets/short_9x16.mp4"`
+4. Call `exit_loop()` once all blocking fixes are applied and media tools have completed.
+5. In your FINAL text response, start IMMEDIATELY with `=== FINAL LINKEDIN POST ===` (NO preamble, NO process commentary like "Je corrige d'abord...") and output the COMPLETE, READY-TO-PUBLISH bundle using these EXACT section headers (omit channels not requested):
 
 === FINAL LINKEDIN POST ===
 [Clean plain-text LinkedIn post — ZERO Markdown bold **, ZERO placeholders]

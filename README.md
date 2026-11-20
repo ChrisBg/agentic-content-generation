@@ -8,7 +8,14 @@ A **Multi-LLM, PaperOrchestra-inspired AI agent system** built on **Google ADK**
 
 - **PaperOrchestra Ingestion Bridge (`src/ingestion.py`)**: Directly ingests LaTeX manuscripts, BibTeX files, Jupyter notebooks, PDFs, and benchmark logs so content is grounded in *your* real experiments rather than generic topic summaries.
 - **Per-Channel Multi-LLM Routing (`src/llm_router.py`)**: Uses the strongest LLM for each job via Google ADK `Gemini` + `LiteLlm` (Gemini 2.5 Pro/Flash for research, ingestion & visuals; Claude Sonnet for LinkedIn & YouTube voice; Grok / GPT-4.1 for X threads; cross-family critic for unbiased peer review) — with automatic fallback to Gemini if optional keys are absent.
-- **Verified Literature Grounding (`src/tools.py`)**: Semantic Scholar Graph API + relevance-sorted arXiv search + sequential citation verification + `.bib` BibTeX export (directly reusable in LaTeX / PaperOrchestra and French CIR/CII R&D dossiers).
+- **Verified Multi-Source Literature Grounding (`src/tools.py`, `src/research_sources.py`)**:
+  - **Semantic Scholar Graph API** + **OpenAlex API** (250M+ papers incl. Econometrics, Finance & AdTech)
+  - **HuggingFace Daily Papers** (trending AI/Agent papers + GitHub repos)
+  - **alphaXiv** (structured Markdown overviews for arXiv papers; also supports optional `ALPHAXIV_API_KEY`)
+  - **HAL Open Archive** (French academic research — ideal for CIR/CII dossiers)
+  - **arXiv** (relevance-sorted search + in-memory **full-text PDF reader** capped at 15 MB)
+  - **Curated Industry RSS Feeds** (allowlisted AdExchanger, Digiday, IAB Tech Lab, HF Blog, Google Research Blog via `defusedxml`)
+  - Sequential citation verification + `.bib` BibTeX export directly reusable in LaTeX / PaperOrchestra.
 - **Visual & Short Demo Video Engine (`src/visuals.py`, `src/video_assets.py`)**:
   - Editorial high-DPI Matplotlib charts & architecture diagrams (`.png` + `.mmd`)
   - Ready-to-upload **LinkedIn 4:5 PDF Carousels**

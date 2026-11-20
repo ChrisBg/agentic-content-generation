@@ -6,8 +6,6 @@ Loads private personal branding knowledge from:
 3. Fallback: ``<repo>/knowledge.example/`` (generic templates tracked in git)
 """
 
-from __future__ import annotations
-
 import logging
 import re
 import shutil
