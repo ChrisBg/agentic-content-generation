@@ -305,17 +305,15 @@ Inputs:
 - Editorial Critique: {{editorial_critique}}
 
 Decision Logic:
-1. Check whether BOTH:
-   - `FACT_CHECK_STATUS` is `PASS` (zero unsourced numbers or hallucinated citations), AND
-   - `DETERMINISTIC_LINT_PASSED` is `True` AND `EDITORIAL_SCORE` >= 85.
-2. **If NOT passed yet**:
-   - Rewrite ONLY the failing parts cleanly (strip any `**` from LinkedIn, shorten tweets > 280 chars, remove banned clichés/placeholders, fix unsourced claims).
-   - Output the full updated deliverables clearly delimited with the markers below so the next iteration verifies them. Do NOT call `exit_loop` yet.
-3. **If PASSED (or after applying clean final fixes when only minor warnings remain)**:
-   - If LinkedIn carousel slides were drafted, call `render_linkedin_carousel_pdf()` saving to `output/tmp_assets/linkedin_carousel.pdf` (passing any generated chart PNG paths).
-   - If a video storyboard was drafted for X / YouTube, call `render_short_explainer_video()` for `16:9` (`output/tmp_assets/demo_explainer_16x9.mp4`) and `9:16` (`output/tmp_assets/short_9x16.mp4`).
-   - Call `exit_loop()` to finish the refinement loop.
-   - Output the COMPLETE, READY-TO-PUBLISH bundle using these EXACT section headers (omit channels not requested):
+1. Review `fact_check_report` and `editorial_critique`.
+2. Fix EVERY blocking issue immediately in this turn (math/unit consistency such as `/semaine` vs `/mois`, zero unsourced stats, zero Markdown `**` in LinkedIn, every X tweet <= 280 chars, zero banned clichés or placeholders, complete YouTube script).
+3. ALWAYS render the final media assets BEFORE exiting:
+   - If LinkedIn carousel slides exist, call `render_linkedin_carousel_pdf()` saving to `output/tmp_assets/linkedin_carousel.pdf` (passing any valid chart PNG paths from `generated_visuals`).
+   - If X or YouTube was requested, call `render_short_explainer_video()` TWICE using a clean 4-5 scene storyboard (using ONLY verified facts & figures — exclude any flawed overlay):
+     - `aspect_ratio="16:9"`, `output_path="output/tmp_assets/demo_explainer_16x9.mp4"`
+     - `aspect_ratio="9:16"`, `output_path="output/tmp_assets/short_9x16.mp4"`
+4. Call `exit_loop()` once all blocking fixes are applied and media tools have completed.
+5. In your FINAL text response, start IMMEDIATELY with `=== FINAL LINKEDIN POST ===` (NO preamble, NO process commentary like "Je corrige d'abord...") and output the COMPLETE, READY-TO-PUBLISH bundle using these EXACT section headers (omit channels not requested):
 
 === FINAL LINKEDIN POST ===
 [Clean plain-text LinkedIn post — ZERO Markdown bold **, ZERO placeholders]

@@ -135,7 +135,7 @@ Create a complete YOUTUBE PRODUCTION PACKAGE in the requested language:
 5. **LIVE DEMO SHOTLIST**: Call `generate_demo_shotlist()` and include the timed recording table so the author can record a real 60s Screen Studio / OBS demo in 5 minutes.
 6. **SEO DESCRIPTION & CHAPTERS**: Timestamped chapters + verified paper links from {verified_research}.
 
-Output format:
+Output format (start IMMEDIATELY with `=== YOUTUBE TITLES & THUMBNAILS ===`, zero meta-commentary or preamble before it):
 === YOUTUBE TITLES & THUMBNAILS ===
 ...
 === YOUTUBE LONG SCRIPT ===
